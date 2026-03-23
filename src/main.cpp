@@ -154,7 +154,12 @@ int __cdecl main(int argc, char* argv[])
 			editor.updateShaders(&pidMain, &pidPost);
 		#endif
 
-	} while(!GetAsyncKeyState(VK_ESCAPE)
+	} while(
+#ifdef EDITOR_CONTROLS
+		true
+#else
+		!GetAsyncKeyState(VK_ESCAPE)
+#endif
 		#if USE_AUDIO
 			&& MMTime.u.sample < MAX_SAMPLES
 		#endif

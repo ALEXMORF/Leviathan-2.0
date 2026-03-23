@@ -1,10 +1,53 @@
 #version 130
 uniform int m;
 out vec4 o;
-float T_MAX = 100.0;
+float T_MAX = 1000.0;
 float PI = 3.1415926;
 float t = m/float(44100);
-float hash(float c){return fract(sin(dot(c, 12.9898)) * 43758.5453);}
+float hash11(float p)
+{
+    p = fract(p * .1031);
+    p *= p + 33.33;
+    p *= p + p;
+    return fract(p);
+}
+float hash12(vec2 p)
+{
+	vec3 p3  = fract(vec3(p.xyx) * .1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+vec2 hash22(vec2 p)
+{
+	vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));
+    p3 += dot(p3, p3.yzx+33.33);
+    return fract((p3.xx+p3.yz)*p3.zy);
+}
+
+float noise(vec2 p)
+{
+	vec2 ip = floor(p);
+	vec2 fp = p - ip;
+	float a = hash12(ip);
+	float b = hash12(ip+vec2(1,0));
+	float c = hash12(ip+vec2(0,1));
+	float d = hash12(ip+vec2(1,1));
+	vec2 t = smoothstep(vec2(0), vec2(1), fp);
+	return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
+}
+
+float fbm(vec2 p)
+{
+	float v = 0.0;
+	float k = 0.5;
+	for (int i = 0; i < 5; ++i)
+	{
+		v += k*noise(p/k);
+		k /= 2.0;
+	}
+	return v;
+}
+
 mat3 rx(float a){return mat3(1.0,0.0,0.0,0.0,cos(a),-sin(a),0.0,sin(a),cos(a));}
 mat3 ry(float a){return mat3(cos(a),0.0,sin(a),0.0,1.0,0.0,-sin(a),0.0,cos(a));}
 mat3 rz(float a){return mat3(cos(a),-sin(a),0.0,sin(a),cos(a),0.0,0.0,0.0,1.0);}
@@ -82,21 +125,29 @@ float sdCarInterior(vec3 p)
 	return dist;
 }
 
+float eval_terrain_height(vec2 p)
+{
+	float terrain_height = 30.0*fbm(0.01*p) - 0.5;
+	//return terrain_height;
+	return 0.0;
+}
+
 float sdWorld(vec3 p)
 {
+	float terrain_height = eval_terrain_height(p.xz);
 	vec2 id = mod2(p.xz, vec2(5.0, 5.0));
-	if (id.x == 0) {
-		return 5.0;
-	}
-	p.xz += 2.0 * vec2(hash(dot(id.x, id.y)), hash(3.7+dot(id.y, id.x)));
-	return length(p - vec3(0, 0, 0)) - 0.3;
+	p.xz += 4.0 * (hash22(id) - 0.5);
+	float dist = length(p - vec3(0, terrain_height, 0)) - 0.3;
+	dist = min(dist, p.y-terrain_height);
+	return dist;
 }
+
+vec3 g_origin;
 
 float map(vec3 p)
 {
-	float dist = sdCarInterior(p - vec3(1.2,0.7,-0.8));
-	dist = min(dist, p.y);
-	dist = min(dist, sdWorld(p - vec3(0, 0, -30.0*t)));
+	float dist = sdCarInterior(p - (g_origin + vec3(1.2,-0.7,1.2)));
+	dist = min(dist, sdWorld(p));
 	return dist;
 }
 float shadow( in vec3 ro, in vec3 rd, float mint, float maxt, float w )
@@ -119,7 +170,7 @@ float shadow( in vec3 ro, in vec3 rd, float mint, float maxt, float w )
 }
 vec3 rhs(vec3 dir, float i)
 {
-	vec2 rnd = vec2(hash(i+1.), hash(i+2.));
+	vec2 rnd = vec2(hash11(i+1.), hash11(i+2.));
 	float s = rnd.x*PI*2.;
 	float t = rnd.y*2.-1.;
 	vec3 v = vec3(sin(s), cos(s), t) / sqrt(1.0 + t * t);
@@ -130,7 +181,7 @@ float ao( vec3 p, vec3 n, float maxDist, float falloff)
 	float ao = 0.0;
 	for( int i=0; i<10; i++ )
 	{
-		float l = hash(float(i))*maxDist;
+		float l = hash11(float(i))*maxDist;
 		vec3 rd = normalize(n+rhs(n, l )*0.95)*l;
 		ao += (l - map( p + rd )) / pow(1.+l, falloff);
 	}
@@ -152,13 +203,16 @@ void main()
 	vec2 q = gl_FragCoord.xy/res.xy;
 	vec2 v = -1.0+2.0*q;
 	v.x *= res.x/res.y;
-	vec3 ro = vec3(0, 1.4+0.01*hash(t), -2);
+	g_origin = vec3(0, 1.4, 30.0*t-2);
+	g_origin.y += eval_terrain_height(g_origin.xz);
+	// TODO: car shake is broken because car position tracks origin now, fix!
+	g_origin.y += 0.01*noise(vec2(50*t, 0)); // car shake
 	vec3 rd = normalize(vec3(v.x, v.y, 1.7));
 	float t = 0.0;
 
 	bool hit = false;
 	for (int i = 0; i < 256 && t < T_MAX; ++i) {
-		float dist = map(ro + t * rd);
+		float dist = map(g_origin + t * rd);
 		if (abs(dist) < 0.001*(1.0+t)) {
 			hit = true;
 			break;
@@ -172,7 +226,7 @@ void main()
 	vec3 l = normalize(vec3(-2.0, 1.0, -1.0));
 	if (hit)
 	{
-		vec3 p = ro + t * rd;
+		vec3 p = g_origin + t * rd;
 		vec3 n = normal(p);
 		vec3 albedo = vec3(1);
 		col = 0.7 * max(0.0, dot(n, l)) * albedo * shadow(p, l, 0.023, T_MAX, 0.05);
