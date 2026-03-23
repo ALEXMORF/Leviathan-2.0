@@ -16,6 +16,8 @@
 #define USE_AUDIO    1
 #define NO_UNIFORMS  0
 
+#define WINDOWS_IGNORE_PACKING_MISMATCH 1
+
 #include "definitions.h"
 #if OPENGL_DEBUG
 	#include "debug.h"

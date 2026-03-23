@@ -37,6 +37,7 @@ i = vec4(0);
 		float s2 = hash(float(1-t+dot(uv,uv)));
 		vec2 f = 0.01*(-1.0+2.0*vec2(s1,s2));
 		i += vec4(textureLod(o, uv, (0.3+0.7*s1)*texture(o, (1.0+1.0*f)*uv).a*8).rgb,1);
+		//i += vec4(textureLod(o, uv, texture(o, uv).a).rgb,1);
 	}
 	i /= vec4(25);
 }
