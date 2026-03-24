@@ -127,9 +127,20 @@ float sdCarInterior(vec3 p)
 
 float eval_terrain_height(vec2 p)
 {
-	float terrain_height = 30.0*fbm(0.01*p) - 0.5;
-	//return terrain_height;
-	return 0.0;
+	float terrain_height = 40.0*noise(0.01*p) - 0.5;
+	//terrain_height += 20.0*noise(0.02*p);
+	//terrain_height += 10.0*noise(0.04*p);
+	//terrain_height += 5.0*noise(0.1*p);
+	return terrain_height;
+}
+
+vec3 eval_terrain_normal(vec2 p)
+{
+	vec2 e = vec2(0, 0.05);
+	float center_height = eval_terrain_height(p);
+	float dhdx = eval_terrain_height(p + e.yx) - center_height;
+	float dhdz = eval_terrain_height(p + e.xy) - center_height;
+	return normalize(cross(vec3(0, dhdz, e.y), vec3(e.y, dhdx, 0)));
 }
 
 float sdWorld(vec3 p)
@@ -143,10 +154,22 @@ float sdWorld(vec3 p)
 }
 
 vec3 g_origin;
+mat3 g_view_rotation;
+
+mat3 mat3_from_up(vec3 up)
+{
+	vec3 right = normalize(cross(up, vec3(0,0,1)));
+	vec3 forward = normalize(cross(right, up));
+	return transpose(mat3(right, up, forward));
+}
 
 float map(vec3 p)
 {
-	float dist = sdCarInterior(p - (g_origin + vec3(1.2,-0.7,1.2)));
+	vec3 cp = p;
+	cp -= g_origin;
+	cp *= transpose(g_view_rotation);
+	cp -= vec3(1.2,-0.7,1.2);
+	float dist = sdCarInterior(cp);
 	dist = min(dist, sdWorld(p));
 	return dist;
 }
@@ -203,16 +226,19 @@ void main()
 	vec2 q = gl_FragCoord.xy/res.xy;
 	vec2 v = -1.0+2.0*q;
 	v.x *= res.x/res.y;
-	g_origin = vec3(0, 1.4, 30.0*t-2);
+	g_origin = vec3(0, 1.4, -2);
+	g_origin += 40.0*vec3(0, 0, t);
 	g_origin.y += eval_terrain_height(g_origin.xz);
 	// TODO: car shake is broken because car position tracks origin now, fix!
-	g_origin.y += 0.01*noise(vec2(50*t, 0)); // car shake
-	vec3 rd = normalize(vec3(v.x, v.y, 1.7));
+	vec3 ro = g_origin;
+	ro.y += 0.01*noise(vec2(50*t, 0)); // car shake
+	g_view_rotation = mat3_from_up(eval_terrain_normal(g_origin.xz));
+	vec3 rd = normalize(vec3(v.x, v.y, 1.7)) * g_view_rotation;
 	float t = 0.0;
 
 	bool hit = false;
 	for (int i = 0; i < 256 && t < T_MAX; ++i) {
-		float dist = map(g_origin + t * rd);
+		float dist = map(ro + t * rd);
 		if (abs(dist) < 0.001*(1.0+t)) {
 			hit = true;
 			break;
@@ -226,7 +252,7 @@ void main()
 	vec3 l = normalize(vec3(-2.0, 1.0, -1.0));
 	if (hit)
 	{
-		vec3 p = g_origin + t * rd;
+		vec3 p = ro + t * rd;
 		vec3 n = normal(p);
 		vec3 albedo = vec3(1);
 		col = 0.7 * max(0.0, dot(n, l)) * albedo * shadow(p, l, 0.023, T_MAX, 0.05);
