@@ -156,11 +156,11 @@ float sdWorld(vec3 p)
 vec3 g_origin;
 mat3 g_view_rotation;
 
-mat3 mat3_from_up(vec3 up)
+mat3 view_mat3(vec3 forward, vec3 y)
 {
-	vec3 right = normalize(cross(up, vec3(0,0,1)));
-	vec3 forward = normalize(cross(right, up));
-	return transpose(mat3(right, up, forward));
+	vec3 x = normalize(cross(y, forward));
+	vec3 z = normalize(cross(x, y));
+	return transpose(mat3(x, y, z));
 }
 
 float map(vec3 p)
@@ -220,6 +220,15 @@ vec3 normal( vec3 p )
 	));
 }
 
+vec4 bezier2(vec2 p0, vec2 p1, vec2 p2, float t)
+{
+	vec4 res;
+	float k = 1.0 - t;
+	res.xy = k*k*p0 + 2*k*t*p1 + t*t*p2; // value
+	res.zw = (2*t - 2)*p0 + (2 - 4*t)*p1 + 2*t*p2; // derivative
+	return res;
+}
+
 void main()
 {
 	vec2 res = vec2(1280,720);
@@ -227,12 +236,14 @@ void main()
 	vec2 v = -1.0+2.0*q;
 	v.x *= res.x/res.y;
 	g_origin = vec3(0, 1.4, -2);
-	g_origin += 40.0*vec3(0, 0, t);
+	//g_origin.xz += 40.0*vec3(0, t);
+	vec4 track_val = bezier2(vec2(0,0), vec2(0, 1000), vec2(3000, 1000), t/40.0);
+	g_origin.xz += track_val.xy;
 	g_origin.y += eval_terrain_height(g_origin.xz);
 	// TODO: car shake is broken because car position tracks origin now, fix!
 	vec3 ro = g_origin;
 	ro.y += 0.01*noise(vec2(50*t, 0)); // car shake
-	g_view_rotation = mat3_from_up(eval_terrain_normal(g_origin.xz));
+	g_view_rotation = view_mat3(vec3(track_val.z, 0, track_val.w), eval_terrain_normal(g_origin.xz));
 	vec3 rd = normalize(vec3(v.x, v.y, 1.7)) * g_view_rotation;
 	float t = 0.0;
 
