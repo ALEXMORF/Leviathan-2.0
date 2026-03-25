@@ -236,11 +236,10 @@ void main()
 	vec2 v = -1.0+2.0*q;
 	v.x *= res.x/res.y;
 	g_origin = vec3(0, 1.4, -2);
-	//g_origin.xz += 40.0*vec3(0, t);
-	vec4 track_val = bezier2(vec2(0,0), vec2(0, 1000), vec2(3000, 1000), t/40.0);
+	float time = t - hash12(gl_FragCoord.xy + t) / 200.0;
+	vec4 track_val = bezier2(vec2(0,0), vec2(0, 1000), vec2(1000, 0), time/60.0);
 	g_origin.xz += track_val.xy;
 	g_origin.y += eval_terrain_height(g_origin.xz);
-	// TODO: car shake is broken because car position tracks origin now, fix!
 	vec3 ro = g_origin;
 	ro.y += 0.01*noise(vec2(50*t, 0)); // car shake
 	g_view_rotation = view_mat3(vec3(track_val.z, 0, track_val.w), eval_terrain_normal(g_origin.xz));
