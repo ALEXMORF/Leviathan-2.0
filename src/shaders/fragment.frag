@@ -1,4 +1,24 @@
 #version 130
+
+/*
+next steps:
+
+- material assignment
+- specular/metalness
+- road
+- trees
+- grass
+- specular reflections (car surface, rained/wet road)
+- sun glare
+- better sky
+- ocean-view
+*/
+
+#define DEFAULT_MATERIAL_ID 0
+#define CAR_MATERIAL_ID 1
+#define STEERING_WHEEL_MATERIAL_ID 2
+#define TERRAIN_MATERIAL_ID 3
+
 uniform int m;
 out vec4 o;
 float T_MAX = 1000.0;
@@ -89,6 +109,21 @@ float caps(vec3 p, float r, float c){
 	return mix(length(p.xz) - r, length(vec3(p.x, abs(p.y) - c, p.z)) - r, step(c, abs(p.y)));
 }
 
+struct Map_Result
+{
+	float dist;
+	int mat_id;
+};
+
+void update(inout Map_Result result, float dist, int mat_id)
+{
+	if (dist < result.dist)
+	{
+		result.dist = dist;
+		result.mat_id = mat_id;
+	}
+}
+
 float sdWheel(vec3 p)
 {
 	p*=rx(-0.05*PI);
@@ -101,12 +136,12 @@ float sdWheel(vec3 p)
 	return dist;
 }
 
-float sdCarInterior(vec3 p)
+void sdCarInterior(inout Map_Result result, vec3 p)
 {
 	vec3 dp = p;
 	dp.x = abs(dp.x);
 
-	float dist = sdWheel(p - vec3(-1.1, -0.1, 0.2));
+	update(result, sdWheel(p - vec3(-1.1, -0.1, 0.2)), STEERING_WHEEL_MATERIAL_ID);
 
 	// dashboard
 	float sdFrame = box((p-vec3(0,-1.05,1.5))*rx(-0.05*PI), vec3(2.5, 1, 1))-0.02;
@@ -117,12 +152,10 @@ float sdCarInterior(vec3 p)
 
 	float sdRoof = box(p-vec3(0,1.9,-2.0), vec3(2.1, 0.1, 2))-0.02;
 
-	dist = min(dist, smin(sdFrame, sdRoof, 0.1));
+	update(result, smin(sdFrame, sdRoof, 0.1), CAR_MATERIAL_ID);
 
 	// doors
-	dist = min(dist, box(dp-vec3(2.75,-2,-1), vec3(0.1, 2.0, 2.0))-0.2);
-
-	return dist;
+	update(result, box(dp-vec3(2.75,-2,-1), vec3(0.1, 2.0, 2.0))-0.2, CAR_MATERIAL_ID);
 }
 
 float eval_terrain_height(vec2 p)
@@ -163,16 +196,21 @@ mat3 view_mat3(vec3 forward, vec3 y)
 	return transpose(mat3(x, y, z));
 }
 
-float map(vec3 p)
+Map_Result map(vec3 p)
 {
+	Map_Result result;
+	result.dist = T_MAX;
+	result.mat_id = DEFAULT_MATERIAL_ID;
 	vec3 cp = p;
 	cp -= g_origin;
 	cp *= transpose(g_view_rotation);
 	cp -= vec3(1.2,-0.7,1.2);
-	float dist = sdCarInterior(cp);
-	dist = min(dist, sdWorld(p));
-	return dist;
+
+	sdCarInterior(result, cp);
+	update(result, sdWorld(p), TERRAIN_MATERIAL_ID);
+	return result;
 }
+
 float shadow( in vec3 ro, in vec3 rd, float mint, float maxt, float w )
 {
     float res = 1.0;
@@ -180,7 +218,7 @@ float shadow( in vec3 ro, in vec3 rd, float mint, float maxt, float w )
     float t = mint;
     for( int i=0; i<256 && t<maxt; i++ )
     {
-        float h = map(ro + rd*t);
+        float h = map(ro + rd*t).dist;
         if( h<0.001 )
             return 0.0;
         float y = h*h/(2.0*ph);
@@ -206,7 +244,7 @@ float ao( vec3 p, vec3 n, float maxDist, float falloff)
 	{
 		float l = hash11(float(i))*maxDist;
 		vec3 rd = normalize(n+rhs(n, l )*0.95)*l;
-		ao += (l - map( p + rd )) / pow(1.+l, falloff);
+		ao += (l - map( p + rd ).dist) / pow(1.+l, falloff);
 	}
 	return clamp(1.-ao*0.1,0.0,999.0);
 }
@@ -214,9 +252,9 @@ vec3 normal( vec3 p )
 {
 	vec3 eps = vec3(0.001, 0.0, 0.0);
 	return normalize( vec3(
-		map(p+eps.xyy)-map(p-eps.xyy),
-		map(p+eps.yxy)-map(p-eps.yxy),
-		map(p+eps.yyx)-map(p-eps.yyx)
+		map(p+eps.xyy).dist-map(p-eps.xyy).dist,
+		map(p+eps.yxy).dist-map(p-eps.yxy).dist,
+		map(p+eps.yyx).dist-map(p-eps.yyx).dist
 	));
 }
 
@@ -246,11 +284,12 @@ void main()
 	vec3 rd = normalize(vec3(v.x, v.y, 1.7)) * g_view_rotation;
 	float t = 0.0;
 
-	bool hit = false;
+	int hit_mat_id = -1;
 	for (int i = 0; i < 256 && t < T_MAX; ++i) {
-		float dist = map(ro + t * rd);
+		Map_Result map_res = map(ro + t * rd);
+		float dist = map_res.dist;
 		if (abs(dist) < 0.001*(1.0+t)) {
-			hit = true;
+			hit_mat_id = map_res.mat_id;
 			break;
 		}
 		t += dist;
@@ -260,13 +299,20 @@ void main()
 	sky_col = mix(sky_col, 0.5*sky_col, rd.y);
 	vec3 col = sky_col;
 	vec3 l = normalize(vec3(-2.0, 1.0, -1.0));
-	if (hit)
+	if (hit_mat_id != -1)
 	{
 		vec3 p = ro + t * rd;
 		vec3 n = normal(p);
 		vec3 albedo = vec3(1);
-		col = 0.7 * max(0.0, dot(n, l)) * albedo * shadow(p, l, 0.023, T_MAX, 0.05);
-		col += 0.15 * sky_col * ao(p, n, 1.5, 1.0);
+		if (hit_mat_id == CAR_MATERIAL_ID)
+			albedo = vec3(0.8, 0.3, 0.1);
+		else if (hit_mat_id == STEERING_WHEEL_MATERIAL_ID)
+			albedo = vec3(0.05);
+		else if (hit_mat_id == TERRAIN_MATERIAL_ID)
+			albedo = vec3(0.4, 0.3, 0.2);
+
+		col = 0.8 * max(0.0, dot(n, l)) * albedo * shadow(p, l, 0.023, T_MAX, 0.05);
+		col += 0.2 * sky_col * ao(p, n, 1.5, 1.0) * albedo;
 	}
 
 	o = vec4(sqrt(col), 0.0);

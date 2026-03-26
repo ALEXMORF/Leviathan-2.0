@@ -11,8 +11,8 @@
 	#define BREAK_COMPATIBILITY 0
 #endif
 
-#define POST_PASS    1
-#define USE_MIPMAPS  1
+#define POST_PASS    0
+#define USE_MIPMAPS  0
 #define USE_AUDIO    1
 #define NO_UNIFORMS  0
 
