@@ -3,7 +3,7 @@
 /*
 next steps:
 
-- road
+- guard-rail
 - grass
 - trees
 - sun glare
@@ -19,7 +19,7 @@ next steps:
 
 uniform int m;
 out vec4 o;
-float T_MAX = 1000.0;
+float T_MAX = 2000.0;
 float PI = 3.1415926;
 float t = m/float(44100);
 float hash11(float p)
@@ -158,7 +158,7 @@ void sdCarInterior(inout Map_Result result, vec3 p)
 
 vec2 roadPointA = vec2(0,0);
 vec2 roadPointB = vec2(0, 1000);
-vec2 roadPointC = vec2(2000, 2000);
+vec2 roadPointC = vec2(3000, 1000);
 
 float cro( vec2 a, vec2 b ) { return a.x*b.y-a.y*b.x; }
 
@@ -190,37 +190,44 @@ float sdRoad(vec2 p, inout vec2 pInBezierCoord)
 	return sdBezier(p, roadPointA, roadPointB, roadPointC, pInBezierCoord);
 }
 
-float eval_terrain_height(vec2 p)
+float eval_terrain_height(vec2 p, float distToRoad)
 {
 	float terrain_height = 60.0*noise(0.01*p) - 0.5;
+	terrain_height += 20.0*noise(0.02*p);
+	terrain_height += 10.0*noise(0.04*p);
+	terrain_height += 5.0*noise(0.1*p);
+	terrain_height += 2.0*noise(0.2*p);
 
-	vec2 temp;
-	float closenessToRoad = sdRoad(p, temp);
-	terrain_height = mix(0.05, 1.0, smoothstep(7.0, 100.0, closenessToRoad)) * terrain_height;
+	terrain_height = mix(0.003, 1.0, smoothstep(7.0, 100.0, distToRoad)) * terrain_height;
 
-	//terrain_height += 20.0*noise(0.02*p);
-	//terrain_height += 10.0*noise(0.04*p);
-	//terrain_height += 5.0*noise(0.1*p);
 	return terrain_height;
 }
 
 vec3 eval_terrain_normal(vec2 p)
 {
 	vec2 e = vec2(0, 0.05);
-	float center_height = eval_terrain_height(p);
-	float dhdx = eval_terrain_height(p + e.yx) - center_height;
-	float dhdz = eval_terrain_height(p + e.xy) - center_height;
+	vec2 temp;
+	float center_height = eval_terrain_height(p, sdRoad(p, temp));
+	float dhdx = eval_terrain_height(p + e.yx, sdRoad(p+e.yx, temp)) - center_height;
+	float dhdz = eval_terrain_height(p + e.xy, sdRoad(p+e.xy, temp)) - center_height;
 	return normalize(cross(vec3(0, dhdz, e.y), vec3(e.y, dhdx, 0)));
 }
 
 float sdWorld(vec3 p)
 {
-	float terrain_height = eval_terrain_height(p.xz);
-	vec2 id = mod2(p.xz, vec2(5.0, 5.0));
-	p.xz += 4.0 * (hash22(id) - 0.5);
-	//float dist = length(p - vec3(0, terrain_height, 0)) - 0.3;
+	vec2 temp;
+	float distToRoad = sdRoad(p.xz, temp);
+	float terrain_height = eval_terrain_height(p.xz, distToRoad);
+
 	float dist = T_MAX;
-	dist = min(dist, p.y-terrain_height);
+
+	if (distToRoad >= 8.0)
+	{
+		vec2 id = mod2(p.xz, vec2(5.0, 5.0));
+		p.xz += 4.0 * (hash22(id) - 0.5);
+		dist = min(dist, length(p - vec3(0, terrain_height, 0)) - 0.3);
+	}
+	dist = min(dist, (p.y-terrain_height));
 	return dist;
 }
 
@@ -321,7 +328,8 @@ void main()
 
 	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, time/60.0);
 	g_origin.xz += track_val.xy;
-	g_origin.y += eval_terrain_height(g_origin.xz);
+	vec2 temp;
+	g_origin.y += eval_terrain_height(g_origin.xz, sdRoad(g_origin.xz, temp));
 	vec3 ro = g_origin;
 	ro.y += 0.01*noise(vec2(50*t, 0)); // car shake
 	g_view_rotation = view_mat3(vec3(track_val.z, 0, track_val.w), eval_terrain_normal(g_origin.xz));
@@ -359,7 +367,7 @@ void main()
 			base_col = vec3(0.05);
 		else if (hit_mat_id == TERRAIN_MATERIAL_ID)
 		{
-			base_col = vec3(0.4, 0.3, 0.2);
+			base_col = vec3(0.35, 0.4, 0.2);
 			if (distToTrack <= 7.0)
 			{
 				base_col = vec3(0.1);
