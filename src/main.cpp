@@ -148,6 +148,7 @@ int __cdecl main(int argc, char* argv[])
 
 		// handle functionality of the editor
 		#ifdef EDITOR_CONTROLS
+			Sleep(16); // stop PC from melting
 			editor.endFrame(timeGetTime());
 			position = editor.handleEvents(&track, position);
 			editor.printFrameStatistics();

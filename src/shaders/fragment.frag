@@ -3,14 +3,12 @@
 /*
 next steps:
 
-- material assignment
-- specular/metalness
 - road
-- trees
 - grass
-- specular reflections (car surface, rained/wet road)
+- trees
 - sun glare
 - better sky
+- specular reflections (car surface, rained/wet road)
 - ocean-view
 */
 
@@ -145,7 +143,7 @@ void sdCarInterior(inout Map_Result result, vec3 p)
 
 	// dashboard
 	float sdFrame = box((p-vec3(0,-1.05,1.5))*rx(-0.05*PI), vec3(2.5, 1, 1))-0.02;
-	sdFrame = smin(sdFrame, box((p-vec3(0,-0.1,1.7))*rx(-0.05*PI), vec3(2.4, 0.01, 1))-0.1, 0.02);
+	sdFrame = smin(sdFrame, box((p-vec3(0,-0.1,1.7))*rx(-0.05*PI), vec3(2.4, 0.01, 1))-0.05, 0.02);
 	// frame
 	sdFrame = smin(sdFrame, box((dp-vec3(2.7,0,1.15))*rx(0.2*PI), vec3(0.1, 2.3, 0.1))-0.08, 0.05);
 	sdFrame = smin(sdFrame, box(p-vec3(0,-0.7,3), vec3(3.0, 0.5, 2))-0.2, 0.01);
@@ -158,9 +156,49 @@ void sdCarInterior(inout Map_Result result, vec3 p)
 	update(result, box(dp-vec3(2.75,-2,-1), vec3(0.1, 2.0, 2.0))-0.2, CAR_MATERIAL_ID);
 }
 
+vec2 roadPointA = vec2(0,0);
+vec2 roadPointB = vec2(0, 1000);
+vec2 roadPointC = vec2(2000, 2000);
+
+float cro( vec2 a, vec2 b ) { return a.x*b.y-a.y*b.x; }
+
+float sdBezier( vec2 p, vec2 v0, vec2 v1, vec2 v2, out vec2 outQ )
+{
+	vec2 i = v0 - v2;
+    vec2 j = v2 - v1;
+    vec2 k = v1 - v0;
+    vec2 w = j-k;
+
+	v0-= p; v1-= p; v2-= p;
+    
+	float x = cro(v0, v2);
+    float y = cro(v1, v0);
+    float z = cro(v2, v1);
+
+	vec2 s = 2.0*(y*j+z*k)-x*i;
+
+    float r =  (y*z-x*x*0.25)/dot(s,s);
+    float t = clamp( (0.5*x+y+r*dot(s,w))/(x+y+z),0.0,1.0);
+    
+    vec2 d = v0+t*(k+k+t*w);
+    outQ = d + p;
+	return length(d);
+}
+
+float sdRoad(vec2 p, inout vec2 pInBezierCoord)
+{
+	return sdBezier(p, roadPointA, roadPointB, roadPointC, pInBezierCoord);
+}
+
 float eval_terrain_height(vec2 p)
 {
 	float terrain_height = 40.0*noise(0.01*p) - 0.5;
+
+	vec2 temp;
+	float closenessToRoad = sdRoad(p, temp);
+	terrain_height = mix(0.0, terrain_height,
+						 smoothstep(7.0, 100.0, closenessToRoad));
+
 	//terrain_height += 20.0*noise(0.02*p);
 	//terrain_height += 10.0*noise(0.04*p);
 	//terrain_height += 5.0*noise(0.1*p);
@@ -181,7 +219,8 @@ float sdWorld(vec3 p)
 	float terrain_height = eval_terrain_height(p.xz);
 	vec2 id = mod2(p.xz, vec2(5.0, 5.0));
 	p.xz += 4.0 * (hash22(id) - 0.5);
-	float dist = length(p - vec3(0, terrain_height, 0)) - 0.3;
+	//float dist = length(p - vec3(0, terrain_height, 0)) - 0.3;
+	float dist = T_MAX;
 	dist = min(dist, p.y-terrain_height);
 	return dist;
 }
@@ -267,15 +306,21 @@ vec4 bezier2(vec2 p0, vec2 p1, vec2 p2, float t)
 	return res;
 }
 
+vec3 fresnel(vec3 f0, float cos_theta)
+{
+	return f0 + (vec3(1) - f0) * pow(1.0 - cos_theta, 5);
+}
+
 void main()
 {
 	vec2 res = vec2(1280,720);
 	vec2 q = gl_FragCoord.xy/res.xy;
 	vec2 v = -1.0+2.0*q;
 	v.x *= res.x/res.y;
-	g_origin = vec3(0, 1.4, -2);
+	g_origin = vec3(0, 1.6, -2);
 	float time = t - hash12(gl_FragCoord.xy + t) / 200.0;
-	vec4 track_val = bezier2(vec2(0,0), vec2(0, 1000), vec2(1000, 0), time/60.0);
+
+	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, time/60.0);
 	g_origin.xz += track_val.xy;
 	g_origin.y += eval_terrain_height(g_origin.xz);
 	vec3 ro = g_origin;
@@ -285,7 +330,7 @@ void main()
 	float t = 0.0;
 
 	int hit_mat_id = -1;
-	for (int i = 0; i < 256 && t < T_MAX; ++i) {
+	for (int i = 0; i < 512 && t < T_MAX; ++i) {
 		Map_Result map_res = map(ro + t * rd);
 		float dist = map_res.dist;
 		if (abs(dist) < 0.001*(1.0+t)) {
@@ -298,21 +343,46 @@ void main()
 	vec3 sky_col = 1.4*vec3(0.5, 0.6, 0.7);
 	sky_col = mix(sky_col, 0.5*sky_col, rd.y);
 	vec3 col = sky_col;
-	vec3 l = normalize(vec3(-2.0, 1.0, -1.0));
+	vec3 l = normalize(vec3(-0.3, 2.0, 1.0));
 	if (hit_mat_id != -1)
 	{
 		vec3 p = ro + t * rd;
 		vec3 n = normal(p);
-		vec3 albedo = vec3(1);
-		if (hit_mat_id == CAR_MATERIAL_ID)
-			albedo = vec3(0.8, 0.3, 0.1);
-		else if (hit_mat_id == STEERING_WHEEL_MATERIAL_ID)
-			albedo = vec3(0.05);
-		else if (hit_mat_id == TERRAIN_MATERIAL_ID)
-			albedo = vec3(0.4, 0.3, 0.2);
+		vec3 h = normalize(n + l);
 
-		col = 0.8 * max(0.0, dot(n, l)) * albedo * shadow(p, l, 0.023, T_MAX, 0.05);
-		col += 0.2 * sky_col * ao(p, n, 1.5, 1.0) * albedo;
+		vec2 pInRoadCoord;
+		float distToTrack = sdRoad(p.xz, pInRoadCoord);
+
+		vec3 base_col = vec3(1);
+		if (hit_mat_id == CAR_MATERIAL_ID)
+			base_col = vec3(0.05);
+		else if (hit_mat_id == STEERING_WHEEL_MATERIAL_ID)
+			base_col = vec3(0.05);
+		else if (hit_mat_id == TERRAIN_MATERIAL_ID)
+		{
+			base_col = vec3(0.4, 0.3, 0.2);
+			if (distToTrack <= 7.0)
+			{
+				base_col = vec3(0.1);
+				if (distToTrack <= 0.15)
+				{
+					float k = step(1.3, mod(pInRoadCoord.y, 5.0));
+					base_col = mix(base_col, vec3(0.65), k);
+				}
+				if (distToTrack > 6.5)
+				{
+					float k = step(2.0, mod(pInRoadCoord.y, 10.0));
+					base_col = mix(base_col, vec3(0.65), k);
+				}
+			}
+		}
+
+		float n_dot_l = max(0, dot(n, l));
+
+		vec3 diffuse = base_col;
+		float vis = shadow(p, l, 0.023, T_MAX, 0.03);
+		col = diffuse * vis * n_dot_l;
+		col += 0.2 * sky_col * ao(p, n, 1.5, 1.0) * base_col;
 	}
 
 	o = vec4(sqrt(col), 0.0);
