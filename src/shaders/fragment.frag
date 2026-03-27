@@ -192,12 +192,11 @@ float sdRoad(vec2 p, inout vec2 pInBezierCoord)
 
 float eval_terrain_height(vec2 p)
 {
-	float terrain_height = 40.0*noise(0.01*p) - 0.5;
+	float terrain_height = 60.0*noise(0.01*p) - 0.5;
 
 	vec2 temp;
 	float closenessToRoad = sdRoad(p, temp);
-	terrain_height = mix(0.0, terrain_height,
-						 smoothstep(7.0, 100.0, closenessToRoad));
+	terrain_height = mix(0.05, 1.0, smoothstep(7.0, 100.0, closenessToRoad)) * terrain_height;
 
 	//terrain_height += 20.0*noise(0.02*p);
 	//terrain_height += 10.0*noise(0.04*p);
