@@ -3,7 +3,6 @@
 /*
 next steps:
 
-- guard-rail
 - grass
 - trees
 - sun glare
@@ -16,6 +15,7 @@ next steps:
 #define CAR_MATERIAL_ID 1
 #define STEERING_WHEEL_MATERIAL_ID 2
 #define TERRAIN_MATERIAL_ID 3
+#define GUARDRAIL_MATERIAL_ID 4
 
 uniform int m;
 out vec4 o;
@@ -213,22 +213,28 @@ vec3 eval_terrain_normal(vec2 p)
 	return normalize(cross(vec3(0, dhdz, e.y), vec3(e.y, dhdx, 0)));
 }
 
-float sdWorld(vec3 p)
+void sdWorld(inout Map_Result result, vec3 p)
 {
-	vec2 temp;
-	float distToRoad = sdRoad(p.xz, temp);
+	vec2 pInRoadSpace;
+	float distToRoad = sdRoad(p.xz, pInRoadSpace);
 	float terrain_height = eval_terrain_height(p.xz, distToRoad);
 
-	float dist = T_MAX;
+	// guard rails
+	update(result, max(abs(7.2-distToRoad)-0.13+0.03*pow(cos(10.0*p.y), 2.0),
+	                   abs(p.y-0.6-terrain_height)-0.2), GUARDRAIL_MATERIAL_ID);
+	vec3 gp = vec3(7.2-distToRoad, p.y, mod(pInRoadSpace.y+1.5, 3.0)-1.5);
+	update(result, box(gp, vec3(0.1, 0.6, 0.2)), GUARDRAIL_MATERIAL_ID);
 
+	// tiny rocks
 	if (distToRoad >= 8.0)
 	{
 		vec2 id = mod2(p.xz, vec2(5.0, 5.0));
 		p.xz += 4.0 * (hash22(id) - 0.5);
-		dist = min(dist, length(p - vec3(0, terrain_height, 0)) - 0.3);
+		update(result, length(p - vec3(0, terrain_height, 0)) - 0.3, TERRAIN_MATERIAL_ID);
 	}
-	dist = min(dist, (p.y-terrain_height));
-	return dist;
+
+	// terrain
+	update(result, (p.y-terrain_height), TERRAIN_MATERIAL_ID);
 }
 
 vec3 g_origin;
@@ -252,7 +258,7 @@ Map_Result map(vec3 p)
 	cp -= vec3(1.2,-0.7,1.2);
 
 	sdCarInterior(result, cp);
-	update(result, sdWorld(p), TERRAIN_MATERIAL_ID);
+	sdWorld(result, p);
 	return result;
 }
 
