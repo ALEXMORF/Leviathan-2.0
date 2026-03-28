@@ -382,10 +382,9 @@ void main()
 					float k = step(1.3, mod(pInRoadCoord.y, 5.0));
 					base_col = mix(base_col, vec3(0.65), k);
 				}
-				if (distToTrack > 6.5)
+				if (distToTrack > 6.3 && distToTrack < 6.6)
 				{
-					float k = step(2.0, mod(pInRoadCoord.y, 10.0));
-					base_col = mix(base_col, vec3(0.65), k);
+					base_col = vec3(0.65);
 				}
 			}
 		}
