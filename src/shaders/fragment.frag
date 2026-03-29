@@ -3,10 +3,15 @@
 /*
 next steps:
 
-- grass
 - trees
 - sun glare
+- outdoor lighting (inigo quilez)
 - better sky
+- steering wheel rotate
+- anti-aliasing
+-    grass texture
+-    lane markings
+-    rounding guard-rails
 - specular reflections (car surface, rained/wet road)
 - ocean-view
 */
@@ -19,7 +24,7 @@ next steps:
 
 uniform int m;
 out vec4 o;
-float T_MAX = 2000.0;
+float T_MAX = 4000.0;
 float PI = 3.1415926;
 float t = m/float(44100);
 float hash11(float p)
@@ -157,8 +162,8 @@ void sdCarInterior(inout Map_Result result, vec3 p)
 }
 
 vec2 roadPointA = vec2(0,0);
-vec2 roadPointB = vec2(0, 1000);
-vec2 roadPointC = vec2(3000, 1000);
+vec2 roadPointB = 1.0*vec2(0, 1000);
+vec2 roadPointC = 1.0*vec2(3000, 1000);
 
 float cro( vec2 a, vec2 b ) { return a.x*b.y-a.y*b.x; }
 
@@ -198,7 +203,7 @@ float eval_terrain_height(vec2 p, float distToRoad)
 	terrain_height += 5.0*noise(0.1*p);
 	terrain_height += 2.0*noise(0.2*p);
 
-	terrain_height = mix(0.003, 1.0, smoothstep(7.0, 100.0, distToRoad)) * terrain_height;
+	terrain_height = mix(0.003, 1.0, smoothstep(7.0, 200.0, distToRoad)) * terrain_height;
 
 	return terrain_height;
 }
@@ -225,13 +230,15 @@ void sdWorld(inout Map_Result result, vec3 p)
 	vec3 gp = vec3(7.2-distToRoad, p.y, mod(pInRoadSpace.y+1.5, 3.0)-1.5);
 	update(result, box(gp, vec3(0.1, 0.6, 0.2)), GUARDRAIL_MATERIAL_ID);
 
+#if 0
 	// tiny rocks
 	if (distToRoad >= 8.0)
 	{
-		vec2 id = mod2(p.xz, vec2(5.0, 5.0));
-		p.xz += 4.0 * (hash22(id) - 0.5);
-		update(result, length(p - vec3(0, terrain_height, 0)) - 0.3, TERRAIN_MATERIAL_ID);
+		vec2 id = mod2(p.xz, vec2(2.0, 2.0));
+		p.xz += 2.0 * (hash22(id) - 0.5);
+		update(result, length(p - vec3(0, terrain_height, 0)) - 0.1, TERRAIN_MATERIAL_ID);
 	}
+#endif
 
 	// terrain
 	update(result, (p.y-terrain_height), TERRAIN_MATERIAL_ID);
@@ -323,16 +330,42 @@ vec3 fresnel(vec3 f0, float cos_theta)
 	return f0 + (vec3(1) - f0) * pow(1.0 - cos_theta, 5);
 }
 
+vec2 voronoi(vec2 uv)
+{
+    // Use time to warp the space
+    vec2 f = fract(uv);
+    vec2 u = floor(uv);
+    
+    float closest = 100.0;
+    float id = 0.0;
+    for (int y = -1; y <= 1; y++)
+    {
+        for (int x = -1; x <= 1; x++)
+        {
+            vec2 d = vec2(float(x), float(y));
+            vec2 nu = u + d;
+            vec2 p = hash22(nu);
+            float dist = distance(f, p + d);
+            if (dist < closest)
+            {
+                closest = dist;
+                id = hash12(nu);
+            }
+        }
+    }
+    return vec2(max(0.0, 1.0 - closest), id);
+}
+
 void main()
 {
-	vec2 res = vec2(1280,720);
+	vec2 res = vec2(1920,1080);
 	vec2 q = gl_FragCoord.xy/res.xy;
 	vec2 v = -1.0+2.0*q;
 	v.x *= res.x/res.y;
 	g_origin = vec3(0, 1.6, -2);
-	float time = t - hash12(gl_FragCoord.xy + t) / 200.0;
+	float time = t - hash12(gl_FragCoord.xy + t) / 200.0; // motion blur
 
-	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, time/60.0);
+	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, time/30.0);
 	g_origin.xz += track_val.xy;
 	vec2 temp;
 	g_origin.y += eval_terrain_height(g_origin.xz, sdRoad(g_origin.xz, temp));
@@ -343,7 +376,7 @@ void main()
 	float t = 0.0;
 
 	int hit_mat_id = -1;
-	for (int i = 0; i < 512 && t < T_MAX; ++i) {
+	for (int i = 0; i < 1024 && t < T_MAX; ++i) {
 		Map_Result map_res = map(ro + t * rd);
 		float dist = map_res.dist;
 		if (abs(dist) < 0.001*(1.0+t)) {
@@ -373,7 +406,6 @@ void main()
 			base_col = vec3(0.05);
 		else if (hit_mat_id == TERRAIN_MATERIAL_ID)
 		{
-			base_col = vec3(0.35, 0.4, 0.2);
 			if (distToTrack <= 7.0)
 			{
 				base_col = vec3(0.1);
@@ -387,6 +419,17 @@ void main()
 					base_col = vec3(0.65);
 				}
 			}
+			else
+			{
+				float fresnel = pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 3.0);
+				vec3 young_grass_col = vec3(0.35, 0.5, 0.2);
+				vec3 old_grass_col = vec3(0.45, 0.5, 0.2);
+				vec3 grass_col = mix(young_grass_col, old_grass_col, noise(0.02*p.xz));
+				grass_col = mix(0.3*grass_col, grass_col, voronoi(2.0*p.xz).x);
+				grass_col += vec3(0.2, 0.2, 0.1) * fresnel;
+				grass_col *= 0.8;
+				base_col = grass_col;
+			}
 		}
 
 		float n_dot_l = max(0, dot(n, l));
@@ -397,5 +440,6 @@ void main()
 		col += 0.2 * sky_col * ao(p, n, 1.5, 1.0) * base_col;
 	}
 
+	//col = mix(col, smoothstep(vec3(0.0), vec3(1.0), col), 0.3);
 	o = vec4(sqrt(col), 0.0);
 }
