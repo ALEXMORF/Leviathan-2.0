@@ -387,6 +387,7 @@ void main()
 	}
 
 	vec3 sky_col = 1.4*vec3(0.5, 0.6, 0.7);
+	vec3 sun_col = vec3(1.1, 1.05, 1.0);
 	sky_col = mix(sky_col, 0.5*sky_col, rd.y);
 	vec3 col = sky_col;
 	vec3 l = normalize(vec3(-0.3, 2.0, 1.0));
@@ -422,8 +423,8 @@ void main()
 			else
 			{
 				float fresnel = pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 3.0);
-				vec3 young_grass_col = vec3(0.35, 0.5, 0.2);
-				vec3 old_grass_col = vec3(0.45, 0.5, 0.2);
+				vec3 young_grass_col = 0.7*vec3(0.35, 0.5, 0.2);
+				vec3 old_grass_col = 0.7*vec3(0.45, 0.5, 0.2);
 				vec3 grass_col = mix(young_grass_col, old_grass_col, noise(0.02*p.xz));
 				grass_col = mix(0.3*grass_col, grass_col, voronoi(2.0*p.xz).x);
 				grass_col += vec3(0.2, 0.2, 0.1) * fresnel;
@@ -434,10 +435,15 @@ void main()
 
 		float n_dot_l = max(0, dot(n, l));
 
-		vec3 diffuse = base_col;
-		float vis = shadow(p, l, 0.023, T_MAX, 0.03);
-		col = diffuse * vis * n_dot_l;
-		col += 0.2 * sky_col * ao(p, n, 1.5, 1.0) * base_col;
+		col = base_col * n_dot_l * sun_col * shadow(p, l, 0.023, T_MAX, 0.03);
+		col += 0.2 * base_col * sky_col * ao(p, n, 1.5, 1.0);
+
+		float toward_sun = pow(max(0, dot(rd, l)), 3.0);
+
+		// fog
+		col = mix(col, mix(sky_col, sun_col, toward_sun), 1.0-exp(-0.00015*t));
+		// glare
+		col += 0.1 * sun_col * toward_sun;
 	}
 
 	//col = mix(col, smoothstep(vec3(0.0), vec3(1.0), col), 0.3);
