@@ -197,11 +197,15 @@ float sdRoad(vec2 p, inout vec2 pInBezierCoord)
 
 float eval_terrain_height(vec2 p, float distToRoad)
 {
-	float terrain_height = 60.0*noise(0.01*p) - 0.5;
-	terrain_height += 20.0*noise(0.02*p);
-	terrain_height += 10.0*noise(0.04*p);
-	terrain_height += 5.0*noise(0.1*p);
-	terrain_height += 2.0*noise(0.2*p);
+	float amp = 60.0;
+	float freq = 0.005;
+	float terrain_height = 0.0;
+	for (int i = 0; i < 3; ++i)
+	{
+		terrain_height += amp*noise(freq*p);
+		freq *= 2.0;
+		amp /= 2.0;
+	}
 
 	terrain_height = mix(0.003, 1.0, smoothstep(7.0, 200.0, distToRoad)) * terrain_height;
 
@@ -423,8 +427,8 @@ void main()
 			else
 			{
 				float fresnel = pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 3.0);
-				vec3 young_grass_col = 0.7*vec3(0.35, 0.5, 0.2);
-				vec3 old_grass_col = 0.7*vec3(0.45, 0.5, 0.2);
+				vec3 young_grass_col = 0.7*vec3(0.35, 0.5, 0.05);
+				vec3 old_grass_col = 0.7*vec3(0.45, 0.5, 0.05);
 				vec3 grass_col = mix(young_grass_col, old_grass_col, noise(0.02*p.xz));
 				grass_col = mix(0.3*grass_col, grass_col, voronoi(2.0*p.xz).x);
 				grass_col += vec3(0.2, 0.2, 0.1) * fresnel;
@@ -436,16 +440,16 @@ void main()
 		float n_dot_l = max(0, dot(n, l));
 
 		col = base_col * n_dot_l * sun_col * shadow(p, l, 0.023, T_MAX, 0.03);
-		col += 0.2 * base_col * sky_col * ao(p, n, 1.5, 1.0);
+		col += 0.15 * base_col * sky_col * ao(p, n, 1.5, 1.0);
 
 		float toward_sun = pow(max(0, dot(rd, l)), 3.0);
 
 		// fog
-		col = mix(col, mix(sky_col, sun_col, toward_sun), 1.0-exp(-0.00015*t));
+		col = mix(col, mix(sky_col, sun_col, toward_sun), 1.0-exp(-0.00005*t));
 		// glare
 		col += 0.1 * sun_col * toward_sun;
 	}
 
-	//col = mix(col, smoothstep(vec3(0.0), vec3(1.0), col), 0.3);
+	//col = mix(col, smoothstep(vec3(0.0), vec3(1.0), col), 0.6);
 	o = vec4(sqrt(col), 0.0);
 }
