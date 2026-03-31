@@ -168,7 +168,7 @@ void sdCarInterior(inout Map_Result result, vec3 p)
 
 vec2 roadPointA = vec2(0,0);
 vec2 roadPointB = 1.0*vec2(0, 1000);
-vec2 roadPointC = 1.0*vec2(3000, 1000);
+vec2 roadPointC = 1.0*vec2(1500, 2000);
 
 float cro( vec2 a, vec2 b ) { return a.x*b.y-a.y*b.x; }
 
@@ -334,10 +334,6 @@ void sdWorld(inout Map_Result result, vec3 p)
 			p.xz += 3.0 * (hash22(id) - 0.5);
 			sdFractal(result, (p - vec3(0, terrain_height, 0)), 3.0 + 2.0*rand);
 		}
-		else
-		{
-			result.dist = max(result.dist, 10.0);
-		}
 	}
 #endif
 
@@ -497,6 +493,7 @@ void main()
 		vec2 pInRoadCoord;
 		float distToTrack = sdRoad(p.xz, pInRoadCoord);
 
+		bool reflective = false;
 		vec3 base_col = vec3(1);
 		if (hit_mat_id == CAR_MATERIAL_ID)
 			base_col = vec3(0.05);
@@ -510,7 +507,9 @@ void main()
 		{
 			if (distToTrack <= 7.0)
 			{
-				base_col = vec3(0.1);
+				float rand = noise(20.0*p.xz);
+				//n = normalize(n + 0.3*vec3(-0.5 + rand, 0, -0.5 + rand));
+				base_col = vec3(0.1) + rand*vec3(0.05);
 				if (distToTrack <= 0.15)
 				{
 					float k = step(1.3, mod(pInRoadCoord.y, 5.0));
@@ -520,14 +519,16 @@ void main()
 				{
 					base_col = vec3(0.65);
 				}
+
+				reflective = true;
 			}
 			else
 			{
-				float fresnel = pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 3.0);
 				vec3 young_grass_col = 0.7*vec3(0.35, 0.5, 0.05);
 				vec3 old_grass_col = 0.7*vec3(0.45, 0.5, 0.05);
 				vec3 grass_col = mix(young_grass_col, old_grass_col, noise(0.02*p.xz));
 				grass_col = mix(0.3*grass_col, grass_col, voronoi(2.0*p.xz).x);
+				float fresnel = pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 3.0);
 				grass_col += vec3(0.2, 0.2, 0.1) * fresnel;
 				grass_col *= 0.8;
 				base_col = grass_col;
@@ -538,6 +539,10 @@ void main()
 
 		col = base_col * n_dot_l * sun_col * shadow(p+0.001*n, l, 0.023, T_MAX, 0.03);
 		col += 0.15 * base_col * sky_col * ao(p, n, 1.5, 1.0);
+		if (reflective)
+		{
+			col += 0.2 * sky_col * pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 10.0);
+		}
 
 		float toward_sun = pow(max(0, dot(rd, l)), 3.0);
 
