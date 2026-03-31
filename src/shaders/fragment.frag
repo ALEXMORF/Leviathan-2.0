@@ -3,10 +3,13 @@
 /*
 next steps:
 
+- compare to actual switzerland drive-through reference footage for biggest diffs
+     relist priority
 - trees
-- sun glare
-- outdoor lighting (inigo quilez)
-- better sky
+     fibinocci fractal https://www.shadertoy.com/view/lltBWB
+- anti-alias grass textures
+	https://iquilezles.org/articles/filtering/
+- better sky & clouds
 - steering wheel rotate
 - anti-aliasing
 -    grass texture
@@ -21,10 +24,12 @@ next steps:
 #define STEERING_WHEEL_MATERIAL_ID 2
 #define TERRAIN_MATERIAL_ID 3
 #define GUARDRAIL_MATERIAL_ID 4
+#define TREE_TRUNK_MATERIAL_ID 5
+#define TREE_LEAF_MATERIAL_ID 6
 
 uniform int m;
 out vec4 o;
-float T_MAX = 4000.0;
+float T_MAX = 10000.0;
 float PI = 3.1415926;
 float t = m/float(44100);
 float hash11(float p)
@@ -197,17 +202,19 @@ float sdRoad(vec2 p, inout vec2 pInBezierCoord)
 
 float eval_terrain_height(vec2 p, float distToRoad)
 {
-	float amp = 60.0;
-	float freq = 0.005;
+	float amp = 800.0;
+	float freq = 0.0003;
 	float terrain_height = 0.0;
-	for (int i = 0; i < 3; ++i)
+	for (int i = 0; i < 10; ++i)
 	{
 		terrain_height += amp*noise(freq*p);
 		freq *= 2.0;
 		amp /= 2.0;
 	}
 
-	terrain_height = mix(0.003, 1.0, smoothstep(7.0, 200.0, distToRoad)) * terrain_height;
+	float roadToTerrainW = mix(0.003, 1.0, smoothstep(7.0, 200.0, distToRoad));
+	float roadHeight = 800.0;
+	terrain_height = mix(roadHeight, terrain_height, roadToTerrainW);
 
 	return terrain_height;
 }
@@ -222,6 +229,88 @@ vec3 eval_terrain_normal(vec2 p)
 	return normalize(cross(vec3(0, dhdz, e.y), vec3(e.y, dhdx, 0)));
 }
 
+vec3 g_origin;
+mat3 g_view_rotation;
+
+mat3 view_mat3(vec3 forward, vec3 y)
+{
+	vec3 x = normalize(cross(y, forward));
+	vec3 z = normalize(cross(x, y));
+	return transpose(mat3(x, y, z));
+}
+
+// Standard 2D rotation matrix used to bend and twist space
+mat2 rotate2D(float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return mat2(c, s, -s, c);
+}
+
+// Distance Estimator for a 3D Fractal Tree
+void sdFractal(inout Map_Result result, vec3 p, float tree_scale) {
+	p /= tree_scale;
+
+    // 2. Initialize the distance field
+    // Setting 'e' (closest distance) to p.y creates an infinite flat ground plane at y = 0
+    float closestDist = T_MAX;
+    
+    // 3. Initialize the branch scale factor
+    float scale = 1.0;
+
+	int mat_id = TREE_TRUNK_MATERIAL_ID;
+
+    // 4. Fractal Iteration Loop
+    // Continue drawing smaller branches until the scale drops below 0.01
+    while(scale > 0.01) {
+        // A. Domain Repetition / Folding
+        // Taking the absolute value of X mirrors the space along the X-axis. 
+        // This is what causes the tree to branch out left and right at every step.
+        p.x = abs(p.x);
+        
+        // B. Shape Generation: Capped Cylinder (The Branch)
+        // length(p.xz) gives us an infinite vertical cylinder.
+        // abs(p.y - scale * 0.5) - scale * 0.4 creates flat top and bottom bounds.
+        // The max() function intersects them, giving us a finite branch.
+        // Subtracting (scale * 0.1) inflates it slightly, rounding the hard edges.
+        float branchDist = max(abs(p.y - scale * 0.5) - scale * 0.4, length(p.xz)) - scale * 0.1;
+        
+        // C. Boolean Union
+        // min() combines our new branch with the rest of the tree and ground plane.
+		if (branchDist < closestDist)
+		{
+			closestDist = branchDist;
+			mat_id = (scale > 0.03)? TREE_TRUNK_MATERIAL_ID: TREE_LEAF_MATERIAL_ID;
+		}
+        
+        // D. Translation
+        // Move our coordinate system to the tip of the current branch
+        // so the next iteration builds on top of it.
+        p.y -= scale;
+        
+        // E. Rotation
+        // Twist the space around the Y-axis (Yaw)
+        p.xz *= rotate2D(1.6); 
+        // Bend the space outward/forward around the X-axis (Pitch)
+        p.zy *= rotate2D(0.7); 
+        
+        // F. Scaling
+        // Shrink the scale by 23% for the next set of branches.
+        scale *= 0.76;
+    }
+    
+    // 5. The Fudge Factor
+    // Multiplying the final distance by 0.8 acts as a safety margin. 
+    // Because mirroring and non-uniform rotation distorts the perfect distance field, 
+    // raymarchers can sometimes overstep and clip through the surface. 
+    // *0.8 forces the ray to take slightly smaller steps.
+	float dist = tree_scale*(closestDist * 0.8);
+    if (dist < result.dist)
+	{
+		result.dist = dist;
+		result.mat_id = mat_id;
+	}
+}
+
 void sdWorld(inout Map_Result result, vec3 p)
 {
 	vec2 pInRoadSpace;
@@ -234,13 +323,21 @@ void sdWorld(inout Map_Result result, vec3 p)
 	vec3 gp = vec3(7.2-distToRoad, p.y, mod(pInRoadSpace.y+1.5, 3.0)-1.5);
 	update(result, box(gp, vec3(0.1, 0.6, 0.2)), GUARDRAIL_MATERIAL_ID);
 
-#if 0
-	// tiny rocks
-	if (distToRoad >= 8.0)
+#if 1
+	// trees
+	if (distToRoad >= 30.0)
 	{
-		vec2 id = mod2(p.xz, vec2(2.0, 2.0));
-		p.xz += 2.0 * (hash22(id) - 0.5);
-		update(result, length(p - vec3(0, terrain_height, 0)) - 0.1, TERRAIN_MATERIAL_ID);
+		vec2 id = mod2(p.xz, vec2(10.0));
+		float rand = hash12(id);
+		if (rand < 0.5)
+		{
+			p.xz += 3.0 * (hash22(id) - 0.5);
+			sdFractal(result, (p - vec3(0, terrain_height, 0)), 3.0 + 2.0*rand);
+		}
+		else
+		{
+			result.dist = max(result.dist, 10.0);
+		}
 	}
 #endif
 
@@ -248,28 +345,24 @@ void sdWorld(inout Map_Result result, vec3 p)
 	update(result, (p.y-terrain_height), TERRAIN_MATERIAL_ID);
 }
 
-vec3 g_origin;
-mat3 g_view_rotation;
-
-mat3 view_mat3(vec3 forward, vec3 y)
-{
-	vec3 x = normalize(cross(y, forward));
-	vec3 z = normalize(cross(x, y));
-	return transpose(mat3(x, y, z));
-}
 
 Map_Result map(vec3 p)
 {
 	Map_Result result;
 	result.dist = T_MAX;
 	result.mat_id = DEFAULT_MATERIAL_ID;
+
 	vec3 cp = p;
 	cp -= g_origin;
+#if 1
 	cp *= transpose(g_view_rotation);
 	cp -= vec3(1.2,-0.7,1.2);
-
 	sdCarInterior(result, cp);
 	sdWorld(result, p);
+#else
+	//sdTree(result, cp-vec3(0,-0.1,1));
+	update(result, sdFractal(cp-vec3(0,0,4)), TREE_MATERIAL_ID);
+#endif
 	return result;
 }
 
@@ -409,6 +502,10 @@ void main()
 			base_col = vec3(0.05);
 		else if (hit_mat_id == STEERING_WHEEL_MATERIAL_ID)
 			base_col = vec3(0.05);
+		else if (hit_mat_id == TREE_TRUNK_MATERIAL_ID)
+			base_col = 0.7*vec3(0.13, 0.1, 0.05);
+		else if (hit_mat_id == TREE_LEAF_MATERIAL_ID)
+			base_col = 0.7*vec3(0.3, 0.4, 0.05);
 		else if (hit_mat_id == TERRAIN_MATERIAL_ID)
 		{
 			if (distToTrack <= 7.0)
@@ -439,7 +536,7 @@ void main()
 
 		float n_dot_l = max(0, dot(n, l));
 
-		col = base_col * n_dot_l * sun_col * shadow(p, l, 0.023, T_MAX, 0.03);
+		col = base_col * n_dot_l * sun_col * shadow(p+0.001*n, l, 0.023, T_MAX, 0.03);
 		col += 0.15 * base_col * sky_col * ao(p, n, 1.5, 1.0);
 
 		float toward_sun = pow(max(0, dot(rd, l)), 3.0);
