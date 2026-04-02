@@ -3,12 +3,15 @@
 /*
 next steps:
 
+- scene 1
+-	simple houses
+-	tall trees
+-	short foliage/flower
+-   sky
 - compare to actual switzerland drive-through reference footage for biggest diffs
      relist priority
 - trees
-     fibinocci fractal https://www.shadertoy.com/view/lltBWB
 - anti-alias grass textures
-	https://iquilezles.org/articles/filtering/
 - better sky & clouds
 - steering wheel rotate
 - anti-aliasing
@@ -32,6 +35,12 @@ out vec4 o;
 float T_MAX = 10000.0;
 float PI = 3.1415926;
 float t = m/float(44100);
+
+int sceneId = 0;
+vec2 roadPointA;
+vec2 roadPointB;
+vec2 roadPointC;
+
 float hash11(float p)
 {
     p = fract(p * .1031);
@@ -64,18 +73,6 @@ float noise(vec2 p)
 	return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
 }
 
-float fbm(vec2 p)
-{
-	float v = 0.0;
-	float k = 0.5;
-	for (int i = 0; i < 5; ++i)
-	{
-		v += k*noise(p/k);
-		k /= 2.0;
-	}
-	return v;
-}
-
 mat3 rx(float a){return mat3(1.0,0.0,0.0,0.0,cos(a),-sin(a),0.0,sin(a),cos(a));}
 mat3 ry(float a){return mat3(cos(a),0.0,sin(a),0.0,1.0,0.0,-sin(a),0.0,cos(a));}
 mat3 rz(float a){return mat3(cos(a),-sin(a),0.0,sin(a),cos(a),0.0,0.0,0.0,1.0);}
@@ -94,8 +91,8 @@ float modp(inout vec2 p, float rep) {
 	return c;
 }
 vec2 mod2(inout vec2 p, vec2 size) {
-	vec2 c = floor((p + size*0.5)/size);
-	p = mod(p + size*0.5,size) - size*0.5;
+	vec2 c = round(p/size);
+	p = p - c*size;
 	return c;
 }
 float smin( float a, float b, float k )
@@ -166,10 +163,6 @@ void sdCarInterior(inout Map_Result result, vec3 p)
 	update(result, box(dp-vec3(2.75,-2,-1), vec3(0.1, 2.0, 2.0))-0.2, CAR_MATERIAL_ID);
 }
 
-vec2 roadPointA = vec2(0,0);
-vec2 roadPointB = 1.0*vec2(0, 1000);
-vec2 roadPointC = 1.0*vec2(1500, 2000);
-
 float cro( vec2 a, vec2 b ) { return a.x*b.y-a.y*b.x; }
 
 float sdBezier( vec2 p, vec2 v0, vec2 v1, vec2 v2, out vec2 outQ )
@@ -202,18 +195,43 @@ float sdRoad(vec2 p, inout vec2 pInBezierCoord)
 
 float eval_terrain_height(vec2 p, float distToRoad)
 {
-	float amp = 800.0;
-	float freq = 0.0003;
-	float terrain_height = 0.0;
-	for (int i = 0; i < 10; ++i)
+	float terrain_height = 0;
+	float roadHeight = 0;
+
+	float amp = 0.0;
+	float freq = 1.0;
+
+	if (sceneId == 0)
+	{
+		amp = 10.;
+		freq = 0.01;
+	}
+	if (sceneId == 1)
+	{
+		amp = 800.0;
+		freq = 0.0003;
+		roadHeight = 800.0;
+	}
+
+#if 1
+	for (int i = 0; i < 8; ++i)
 	{
 		terrain_height += amp*noise(freq*p);
 		freq *= 2.0;
 		amp /= 2.0;
 	}
+#else
+	p *= freq;
+	terrain_height += noise(p);
+	terrain_height += 0.5*noise(2.0*p);
+	terrain_height += 0.25*noise(4.0*p);
+	terrain_height += 0.125*noise(8.0*p);
+	terrain_height += 0.0625*noise(16.0*p);
+	terrain_height += 0.03125*noise(32.0*p);
+	terrain_height *= amp;
+#endif
 
-	float roadToTerrainW = mix(0.003, 1.0, smoothstep(7.0, 200.0, distToRoad));
-	float roadHeight = 800.0;
+	float roadToTerrainW = mix(0.001, 1.0, smoothstep(7.0, 200.0, distToRoad));
 	terrain_height = mix(roadHeight, terrain_height, roadToTerrainW);
 
 	return terrain_height;
@@ -247,7 +265,7 @@ mat2 rotate2D(float angle) {
 }
 
 // Distance Estimator for a 3D Fractal Tree
-void sdFractal(inout Map_Result result, vec3 p, float tree_scale) {
+void sdTree(inout Map_Result result, vec3 p, float tree_scale) {
 	p /= tree_scale;
 
     // 2. Initialize the distance field
@@ -311,6 +329,30 @@ void sdFractal(inout Map_Result result, vec3 p, float tree_scale) {
 	}
 }
 
+void sdForest(inout Map_Result result, vec3 p, float distToRoad, float terrain_height, vec2 tileDim)
+{
+	// trees
+	if (distToRoad >= 30.0)
+	{
+		for (int i = 0; i < 1; ++i)
+		{
+			for (int j = 0; j < 1; ++j)
+			{
+				vec3 tp = p;
+				tp.xz += vec2(i,j)*tileDim;
+				vec2 id = mod2(tp.xz, tileDim*2.0);
+				float rand = hash12(id);
+				if (rand < 0.5)
+				{
+					tp.xz += tileDim * (hash22(id) - 0.5);
+					tp *= ry(2.0*PI*rand);
+					sdTree(result, (tp - vec3(0, terrain_height, 0)), 3.0 + 2.0*rand);
+				}
+			}
+		}
+	}
+}
+
 void sdWorld(inout Map_Result result, vec3 p)
 {
 	vec2 pInRoadSpace;
@@ -323,24 +365,26 @@ void sdWorld(inout Map_Result result, vec3 p)
 	vec3 gp = vec3(7.2-distToRoad, p.y, mod(pInRoadSpace.y+1.5, 3.0)-1.5);
 	update(result, box(gp, vec3(0.1, 0.6, 0.2)), GUARDRAIL_MATERIAL_ID);
 
-#if 1
-	// trees
-	if (distToRoad >= 30.0)
+	if (sceneId == 0)
 	{
-		vec2 id = mod2(p.xz, vec2(10.0));
-		float rand = hash12(id);
-		if (rand < 0.5)
-		{
-			p.xz += 3.0 * (hash22(id) - 0.5);
-			sdFractal(result, (p - vec3(0, terrain_height, 0)), 3.0 + 2.0*rand);
-		}
+		sdForest(result, p, distToRoad+25.0, terrain_height, vec2(30.0));
 	}
-#endif
+	else if (sceneId == 1)
+	{
+		sdForest(result, p, distToRoad, terrain_height, vec2(5.0));
+	}
 
 	// terrain
 	update(result, (p.y-terrain_height), TERRAIN_MATERIAL_ID);
 }
 
+void sdHouse(inout Map_Result result, vec3 p)
+{
+	float dist = box(p, vec3(0.3, 0.3, 0.3));
+
+	dist = min(dist, box(p, vec3(0.4, 0.1, 0.3)));
+	update(result, dist, DEFAULT_MATERIAL_ID);
+}
 
 Map_Result map(vec3 p)
 {
@@ -356,8 +400,11 @@ Map_Result map(vec3 p)
 	sdCarInterior(result, cp);
 	sdWorld(result, p);
 #else
+	cp.x += 1.0;
+	cp.z -= 2.0;
+	cp *= ry(0.3*PI);
 	//sdTree(result, cp-vec3(0,-0.1,1));
-	update(result, sdFractal(cp-vec3(0,0,4)), TREE_MATERIAL_ID);
+	sdHouse(result, cp);
 #endif
 	return result;
 }
@@ -456,7 +503,22 @@ void main()
 	vec2 v = -1.0+2.0*q;
 	v.x *= res.x/res.y;
 	g_origin = vec3(0, 1.6, -2);
-	float time = t - hash12(gl_FragCoord.xy + t) / 200.0; // motion blur
+	float time = t - 1.0*hash12(gl_FragCoord.xy + t) / 200.0; // motion blur
+
+	if (t < 10.0)
+	{
+		sceneId = 0;
+		roadPointA = vec2(0,0);
+		roadPointB = vec2(0, 500);
+		roadPointC = vec2(1, 1000);
+	}
+	else if (t < 20.0)
+	{
+		sceneId = 1;
+		roadPointA = vec2(0,0);
+		roadPointB = 1.0*vec2(0, 1000);
+		roadPointC = 1.0*vec2(1500, 2000);
+	}
 
 	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, time/30.0);
 	g_origin.xz += track_val.xy;
