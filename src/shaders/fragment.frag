@@ -3,9 +3,6 @@
 /*
 next steps:
 
-- scene 3 (oceanside)
--	ocean
--	sunset lighting
 - scene 4 (fog)
 -	variable density fog?
 - scene 5 (E-werk)
@@ -237,11 +234,24 @@ float eval_terrain_height(vec2 p, float distToRoad)
 		freq = 0.0003;
 		roadHeight = 800.0;
 	}
+	if (sceneId == 2)
+	{
+		amp = 100.0;
+		freq = 0.003;
+		roadHeight = 100.0;
+	}
 
 	float terrain_height = amp*fbm(freq*p);
 
 	float roadToTerrainW = mix(0.001, 1.0, smoothstep(7.0, 200.0, distToRoad));
 	terrain_height = mix(roadHeight, terrain_height, roadToTerrainW);
+
+	if (sceneId == 2)
+	{
+		float ocean_height = 0.0;
+		float terrainToOceanW = mix(0.001, 1.0, smoothstep(0., 100.0, p.x));
+		terrain_height = mix(terrain_height, ocean_height, terrainToOceanW);
+	}
 
 	return terrain_height;
 }
@@ -383,12 +393,11 @@ void sdWorld(inout Map_Result result, vec3 p)
 
 	if (sceneId != 0)
 	{
-
-	// guard rails
-	update(result, max(abs(7.2-distToRoad)-0.13+0.03*pow(cos(10.0*p.y), 2.0),
-	                   abs(p.y-0.6-terrain_height)-0.2), GUARDRAIL_MATERIAL_ID);
-	vec3 gp = vec3(7.2-distToRoad, p.y, mod(pInRoadSpace.y+1.5, 3.0)-1.5);
-	update(result, box(gp, vec3(0.1, 0.6, 0.2)), GUARDRAIL_MATERIAL_ID);
+		// guard rails
+		update(result, max(abs(7.2-distToRoad)-0.13+0.03*pow(cos(10.0*p.y), 2.0),
+						abs(p.y-0.6-terrain_height)-0.2), GUARDRAIL_MATERIAL_ID);
+		vec3 gp = vec3(7.2-distToRoad, p.y, mod(pInRoadSpace.y+1.5, 3.0)-1.5);
+		update(result, box(gp, vec3(0.1, 0.6, 0.2)), GUARDRAIL_MATERIAL_ID);
 	}
 
 	if (sceneId == 0)
@@ -492,9 +501,9 @@ vec4 bezier2(vec2 p0, vec2 p1, vec2 p2, float t)
 	return res;
 }
 
-vec3 fresnel(vec3 f0, float cos_theta)
+vec3 calc_fresnel(vec3 f0, float cos_theta, float exp)
 {
-	return f0 + (vec3(1) - f0) * pow(1.0 - cos_theta, 5);
+	return f0 + (vec3(1) - f0) * pow(1.0 - cos_theta, exp);
 }
 
 vec2 voronoi(vec2 uv)
@@ -539,6 +548,32 @@ float calcAO(vec3 p, vec3 n, float stepSize)
     return res;
 }
 
+vec3 sample_sky_col(vec3 rd, vec3 sun_col, vec3 lightDir)
+{
+	vec3 sky_lo_col = 1.2*vec3(0.5, 0.6, 0.7);
+	vec3 sky_hi_col = vec3(0.0, 0.1, 0.3);
+	float heightFactor = max(0, rd.y);
+	vec3 sky_col = mix(sky_lo_col, sky_hi_col, 1.0-exp(-5.0*heightFactor));
+
+	if (sceneId == 2)
+	{
+		sun_col = 1.5*vec3(0.9, 0.5, 0.2);
+		sky_lo_col = 0.5*vec3(0.8, 0.05, 0.05);
+		sky_hi_col = 1.0*vec3(0.25, 0.2, 0.5);
+    	float sunFactor = heightFactor-0.23*(1.0/(0.8+2.0*pow(rd.x-lightDir.x, 2.0))); // sun-factor
+		sky_col = mix(sun_col, sky_hi_col, 1.0-exp(-3*sunFactor));
+		sky_col = mix(sky_lo_col, sky_col, 1.0-exp(-5*heightFactor));
+
+    	{
+        	float sunT = max(0.0, dot(rd, lightDir));
+        	sunT = smoothstep(0.9995, 1.0, sunT);
+        	sky_col = mix(sky_col, 2.0*sun_col, sunT);
+    	}
+	}
+
+	return sky_col;
+}
+
 void main()
 {
 	vec2 res = vec2(1920,1080);
@@ -548,8 +583,9 @@ void main()
 	g_origin = vec3(0, 1.6, -2);
 	float time = gTime - 1.0*hash12(gl_FragCoord.xy + gTime) / 200.0; // motion blur
 
-	float initialDelayTime = 1.5;
+	const float initialDelayTime = 1.5;
 
+	float trackTime = time;
 	if (gTime < 12.5)
 	{
 		sceneId = 0;
@@ -557,15 +593,24 @@ void main()
 		roadPointB = vec2(0, 500);
 		roadPointC = vec2(1, 1000);
 	}
-	else
+	else if (gTime < 23.5)
 	{
 		sceneId = 1;
 		roadPointA = vec2(0,0);
 		roadPointB = 1.0*vec2(0, 1000);
 		roadPointC = 1.0*vec2(1500, 2000);
+		trackTime = time - 12.5;
+	}
+	else
+	{
+		sceneId = 2;
+		roadPointA = vec2(0, 4000);
+		roadPointB = vec2(0, 8000);
+		roadPointC = vec2(-100, 12000);
+		trackTime = time - 23.5;
 	}
 
-	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, time/30.0);
+	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, trackTime/30.0);
 	g_origin.xz += track_val.xy;
 
 	vec2 temp;
@@ -593,20 +638,20 @@ void main()
 	}
 
 	vec3 sun_col = vec3(1.1, 1.05, 1.0);
-
-	vec3 sky_hi_col = 1.2*vec3(0.5, 0.6, 0.7);
-	vec3 sky_lo_col = vec3(0.0, 0.1, 0.3);
-	vec3 sky_avg_col = mix(sky_lo_col, sky_hi_col, 0.5);
-	vec3 sky_col = mix(sky_lo_col, sky_hi_col, exp(-5.0*max(0,rd.y)));
+	vec3 ambient_col = vec3(0.3, 0.35, 0.5);
+	vec3 lightDir = normalize(vec3(-0.3, 2.0, 1.0));
+	if (sceneId == 2)
+	{
+		lightDir = normalize(vec3(0.2, 0.1, 1.0));
+	}
+	vec3 sky_col = sample_sky_col(rd, sun_col, lightDir);
 
 	vec3 col = sky_col;
-	vec3 l = normalize(vec3(-0.3, 2.0, 1.0));
-	//vec3 l = normalize(vec3(-0.3, 1.0, -1.0));
 	if (hit_mat_id != -1)
 	{
 		vec3 p = ro + t * rd;
 		vec3 n = normal(p);
-		vec3 h = normalize(n + l);
+		vec3 h = normalize(n + lightDir);
 
 		vec2 pInRoadCoord;
 		float distToTrack = sdRoad(p.xz, pInRoadCoord);
@@ -650,17 +695,17 @@ void main()
 				vec3 old_grass_col = 0.7*vec3(0.45, 0.5, 0.05);
 				vec3 grass_col = mix(young_grass_col, old_grass_col, noise(0.02*p.xz));
 				grass_col = mix(0.3*grass_col, grass_col, voronoi(2.0*p.xz).x);
-				float fresnel = pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 3.0);
+				vec3 fresnel = calc_fresnel(vec3(0), dot(n, -rd), 3.0);
 				grass_col += vec3(0.2, 0.2, 0.1) * fresnel;
 				grass_col *= 0.8;
 				base_col = grass_col;
 			}
 		}
 
-		float n_dot_l = max(0, dot(n, l));
+		float n_dot_l = max(0, dot(n, lightDir));
 
-		col = base_col * n_dot_l * sun_col * calc_shadow(p+0.001*n, l, 0.023, T_MAX, 0.03);
-		col += 0.15 * base_col * sky_avg_col * ao(p, n, 1.5, 1.0);
+		col = base_col * n_dot_l * sun_col * calc_shadow(p+0.001*n, lightDir, 0.023, T_MAX, 0.03);
+		col += 0.15 * base_col * ambient_col * ao(p, n, 1.5, 1.0);
 		//col += 0.15 * base_col * sky_col * calcAO(p+0.001*n, n, 0.2);
 		if (reflective)
 		{
@@ -676,19 +721,36 @@ void main()
 			col += 0.2 * sun_col * vec3(0.3, 0.5, 0.1) * bounce_strength;
 		}
 
-		float toward_sun = pow(max(0, dot(rd, l)), 3.0);
+		if (sceneId == 2 && p.x > 5.0)
+		{
+			vec3 oceanN = vec3(0, 1, 0);
+			oceanN += 0.01*(fbm(0.01*p.xz)-0.5);
+			vec3 reflectRd = reflect(rd, oceanN);
+			vec3 fresnel = calc_fresnel(vec3(0.2), dot(n, -rd), 5.0);
+			col = fresnel * sample_sky_col(reflectRd, sun_col, lightDir);
+		}
+
+		float toward_sun = pow(max(0, dot(rd, lightDir)), 8.0);
 
 		// fog
-		col = mix(col, mix(sky_col, sun_col, toward_sun), 1.0-exp(-0.00005*t));
-		// glare
-		col += 0.1 * sun_col * toward_sun;
+		//col = mix(col, mix(sky_col, sun_col, toward_sun), 1.0-exp(-0.00005*t));
+		col = mix(col, sky_col, 1.0-exp(-0.00005*t));
+
+		if (sceneId != 2)
+		{
+			// glare
+			col += 0.1 * sun_col * toward_sun;
+		}
 	}
 	else
 	{
-		// cloud
-		float cloudHeight = 5000.0 - 2000.0*dot(rd.xz, rd.xz);
- 		vec3 skyP = ro + rd*(cloudHeight/rd.y);
-		col = mix(col, vec3(1), max(0, fbm(0.0002*skyP.xz)-1.2));
+		if (sceneId != 2)
+		{
+			// cloud
+			float cloudHeight = 5000.0 - 2000.0*dot(rd.xz, rd.xz);
+ 			vec3 skyP = ro + rd*(cloudHeight/rd.y);
+			col = mix(col, vec3(1), max(0, fbm(0.0002*skyP.xz)-1.2));
+		}
 	}
 
 	if (gTime < initialDelayTime)
