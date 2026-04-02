@@ -76,7 +76,7 @@ int __cdecl main(int argc, char* argv[])
 	// initialize sound
 	#ifndef EDITOR_CONTROLS
 		#if USE_AUDIO
-			CreateThread(0, 0, (LPTHREAD_START_ROUTINE)_4klang_render, lpSoundBuffer, 0, 0);
+			CreateThread(0, 0, (LPTHREAD_START_ROUTINE)su_render_song, lpSoundBuffer, 0, 0);
 			waveOutOpen(&hWaveOut, WAVE_MAPPER, &WaveFMT, NULL, 0, CALLBACK_NULL);
 			waveOutPrepareHeader(hWaveOut, &WaveHDR, sizeof(WaveHDR));
 			waveOutWrite(hWaveOut, &WaveHDR, sizeof(WaveHDR));
@@ -162,7 +162,7 @@ int __cdecl main(int argc, char* argv[])
 		!GetAsyncKeyState(VK_ESCAPE)
 #endif
 		#if USE_AUDIO
-			&& MMTime.u.sample < MAX_SAMPLES
+			&& MMTime.u.sample < SU_LENGTH_IN_SAMPLES
 		#endif
 	);
 

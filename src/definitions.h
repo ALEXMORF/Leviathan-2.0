@@ -53,29 +53,26 @@ static DEVMODE screenSettings = {
 	#include "4klang/4klang.h"
 
 	#pragma data_seg(".4klangout")
-	static SAMPLE_TYPE lpSoundBuffer[MAX_SAMPLES * 2];
+	static SUsample lpSoundBuffer[SU_BUFFER_LENGTH];
 	static HWAVEOUT hWaveOut;
 
 	#pragma data_seg(".wavefmt")
 	static WAVEFORMATEX WaveFMT =
 	{
-	#ifdef FLOAT_32BIT	
 		WAVE_FORMAT_IEEE_FLOAT,
-	#else
-		WAVE_FORMAT_PCM,
-	#endif		
+		//WAVE_FORMAT_PCM,
 		2,                                   // channels
-		SAMPLE_RATE,                         // samples per sec
-		SAMPLE_RATE*sizeof(SAMPLE_TYPE) * 2, // bytes per sec
-		sizeof(SAMPLE_TYPE) * 2,             // block alignment;
-		sizeof(SAMPLE_TYPE) * 8,             // bits per sample
+		SU_SAMPLE_RATE,                         // samples per sec
+		SU_SAMPLE_RATE*sizeof(SUsample) * 2, // bytes per sec
+		sizeof(SUsample) * 2,             // block alignment;
+		sizeof(SUsample) * 8,             // bits per sample
 		0                                    // extension not needed
 	};
 
 	#pragma data_seg(".wavehdr")
 	static WAVEHDR WaveHDR =
 	{
-		(LPSTR)lpSoundBuffer, MAX_SAMPLES * sizeof(SAMPLE_TYPE) * 2, 0, 0, 0, 0, 0, 0
+		(LPSTR)lpSoundBuffer, SU_BUFFER_LENGTH * sizeof(SUsample), 0, 0, 0, 0, 0, 0
 	};
 
 	static MMTIME MMTime =

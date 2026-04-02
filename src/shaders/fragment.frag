@@ -4,7 +4,8 @@
 next steps:
 
 - scene 1
--	simple houses
+-	house windows
+-	house orientation/dimension/color randomization
 -	tall trees
 -	short foliage/flower
 -   sky
@@ -29,6 +30,8 @@ next steps:
 #define GUARDRAIL_MATERIAL_ID 4
 #define TREE_TRUNK_MATERIAL_ID 5
 #define TREE_LEAF_MATERIAL_ID 6
+#define HOUSE_BODY_MATERIAL_ID 7
+#define HOUSE_ROOF_MATERIAL_ID 8
 
 uniform int m;
 out vec4 o;
@@ -100,10 +103,6 @@ float smin( float a, float b, float k )
     k *= 4.0;
     float h = max(k-abs(a-b),0.0);
     return min(a, b) - h*h*0.25/k;
-}
-float sp(vec3 p, float r)
-{
-	return length(p)-r;
 }
 float torus( vec3 p, vec2 t )
 {
@@ -195,9 +194,7 @@ float sdRoad(vec2 p, inout vec2 pInBezierCoord)
 
 float eval_terrain_height(vec2 p, float distToRoad)
 {
-	float terrain_height = 0;
 	float roadHeight = 0;
-
 	float amp = 0.0;
 	float freq = 1.0;
 
@@ -213,23 +210,14 @@ float eval_terrain_height(vec2 p, float distToRoad)
 		roadHeight = 800.0;
 	}
 
-#if 1
-	for (int i = 0; i < 8; ++i)
-	{
-		terrain_height += amp*noise(freq*p);
-		freq *= 2.0;
-		amp /= 2.0;
-	}
-#else
 	p *= freq;
-	terrain_height += noise(p);
+	float terrain_height = noise(p);
 	terrain_height += 0.5*noise(2.0*p);
 	terrain_height += 0.25*noise(4.0*p);
 	terrain_height += 0.125*noise(8.0*p);
 	terrain_height += 0.0625*noise(16.0*p);
 	terrain_height += 0.03125*noise(32.0*p);
 	terrain_height *= amp;
-#endif
 
 	float roadToTerrainW = mix(0.001, 1.0, smoothstep(7.0, 200.0, distToRoad));
 	terrain_height = mix(roadHeight, terrain_height, roadToTerrainW);
@@ -353,6 +341,19 @@ void sdForest(inout Map_Result result, vec3 p, float distToRoad, float terrain_h
 	}
 }
 
+void sdHouse(inout Map_Result result, vec3 p)
+{
+	float body = box(p, vec3(5.0, 5.5, 10.0)) - 0.01;
+	body = max(body, -box(p-vec3(0,0,-10), vec3(0.5,0.8,0.1)));
+	update(result, body, HOUSE_BODY_MATERIAL_ID);
+
+	vec3 rp = p-vec3(0,5*1.45,0);
+	rp.x = abs(rp.x);
+	rp *= rz(PI/6);
+	float roof = box(rp, vec3(7.5, 0.5, 11.5)) - 0.01;
+	update(result, roof, HOUSE_ROOF_MATERIAL_ID);
+}
+
 void sdWorld(inout Map_Result result, vec3 p)
 {
 	vec2 pInRoadSpace;
@@ -367,6 +368,21 @@ void sdWorld(inout Map_Result result, vec3 p)
 
 	if (sceneId == 0)
 	{
+		if (distToRoad >= 30.0)
+		{
+			vec3 hp = p;
+			vec2 houseId = mod2(hp.xz, vec2(50.0));
+			vec2 rand = hash22(houseId);
+			if (rand.x < 0.2)
+			{
+				hp.y -= terrain_height + 3.5;
+				if (rand.y < 0.5)
+				{
+					hp *= ry(PI);
+				}
+				sdHouse(result, hp);
+			}
+		}
 		sdForest(result, p, distToRoad+25.0, terrain_height, vec2(30.0));
 	}
 	else if (sceneId == 1)
@@ -376,14 +392,6 @@ void sdWorld(inout Map_Result result, vec3 p)
 
 	// terrain
 	update(result, (p.y-terrain_height), TERRAIN_MATERIAL_ID);
-}
-
-void sdHouse(inout Map_Result result, vec3 p)
-{
-	float dist = box(p, vec3(0.3, 0.3, 0.3));
-
-	dist = min(dist, box(p, vec3(0.4, 0.1, 0.3)));
-	update(result, dist, DEFAULT_MATERIAL_ID);
 }
 
 Map_Result map(vec3 p)
@@ -400,16 +408,13 @@ Map_Result map(vec3 p)
 	sdCarInterior(result, cp);
 	sdWorld(result, p);
 #else
-	cp.x += 1.0;
-	cp.z -= 2.0;
-	cp *= ry(0.3*PI);
 	//sdTree(result, cp-vec3(0,-0.1,1));
-	sdHouse(result, cp);
+	sdHouse(result, cp-vec3(0,0,28));
 #endif
 	return result;
 }
 
-float shadow( in vec3 ro, in vec3 rd, float mint, float maxt, float w )
+float calc_shadow( in vec3 ro, in vec3 rd, float mint, float maxt, float w )
 {
     float res = 1.0;
     float ph = 1e20;
@@ -420,7 +425,8 @@ float shadow( in vec3 ro, in vec3 rd, float mint, float maxt, float w )
         if( h<0.001 )
             return 0.0;
         float y = h*h/(2.0*ph);
-        float d = sqrt(h*h-y*y);
+        //float d = sqrt(h*h-y*y);
+        float d = sqrt(abs(h*h-y*y)); // clamp above 0 to avoid NaN
         res = min( res, d/(w*max(0.0,t-y)) );
         ph = h;
         t += h;
@@ -496,6 +502,22 @@ vec2 voronoi(vec2 uv)
     return vec2(max(0.0, 1.0 - closest), id);
 }
 
+float calcAO(vec3 p, vec3 n, float stepSize)
+{
+    float res = 0.0;
+    float amp = 0.5;
+    for (int i = 0; i < 5; ++i)
+    {
+        float t = stepSize*float(i+1);
+        vec3 sampleP = p + t * n;
+        float dist = map(sampleP).dist;
+        res += amp * (dist / t);
+        amp /= 2.0;
+        stepSize *= 2.0;
+    }
+    return res;
+}
+
 void main()
 {
 	vec2 res = vec2(1920,1080);
@@ -522,8 +544,14 @@ void main()
 
 	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, time/30.0);
 	g_origin.xz += track_val.xy;
+
 	vec2 temp;
 	g_origin.y += eval_terrain_height(g_origin.xz, sdRoad(g_origin.xz, temp));
+
+	// nudge car to be on the right lane
+	vec3 track_side_dir = normalize(cross(vec3(track_val.z, 0, track_val.w), eval_terrain_normal(g_origin.xz)));
+	g_origin -= 2.0 * track_side_dir;
+
 	vec3 ro = g_origin;
 	ro.y += 0.01*noise(vec2(50*t, 0)); // car shake
 	g_view_rotation = view_mat3(vec3(track_val.z, 0, track_val.w), eval_terrain_normal(g_origin.xz));
@@ -546,6 +574,7 @@ void main()
 	sky_col = mix(sky_col, 0.5*sky_col, rd.y);
 	vec3 col = sky_col;
 	vec3 l = normalize(vec3(-0.3, 2.0, 1.0));
+	//vec3 l = normalize(vec3(-0.3, 1.0, -1.0));
 	if (hit_mat_id != -1)
 	{
 		vec3 p = ro + t * rd;
@@ -559,13 +588,17 @@ void main()
 		vec3 base_col = vec3(1);
 		if (hit_mat_id == CAR_MATERIAL_ID)
 			base_col = vec3(0.05);
-		else if (hit_mat_id == STEERING_WHEEL_MATERIAL_ID)
+		if (hit_mat_id == STEERING_WHEEL_MATERIAL_ID)
 			base_col = vec3(0.05);
-		else if (hit_mat_id == TREE_TRUNK_MATERIAL_ID)
+		if (hit_mat_id == TREE_TRUNK_MATERIAL_ID)
 			base_col = 0.7*vec3(0.13, 0.1, 0.05);
-		else if (hit_mat_id == TREE_LEAF_MATERIAL_ID)
+		if (hit_mat_id == TREE_LEAF_MATERIAL_ID)
 			base_col = 0.7*vec3(0.3, 0.4, 0.05);
-		else if (hit_mat_id == TERRAIN_MATERIAL_ID)
+		if (hit_mat_id == HOUSE_BODY_MATERIAL_ID)
+			base_col = vec3(0.5);
+		if (hit_mat_id == HOUSE_ROOF_MATERIAL_ID)
+			base_col = vec3(0.5, 0.18, 0.1);
+		if (hit_mat_id == TERRAIN_MATERIAL_ID)
 		{
 			if (distToTrack <= 7.0)
 			{
@@ -599,11 +632,21 @@ void main()
 
 		float n_dot_l = max(0, dot(n, l));
 
-		col = base_col * n_dot_l * sun_col * shadow(p+0.001*n, l, 0.023, T_MAX, 0.03);
+		col = base_col * n_dot_l * sun_col * calc_shadow(p+0.001*n, l, 0.023, T_MAX, 0.03);
 		col += 0.15 * base_col * sky_col * ao(p, n, 1.5, 1.0);
+		//col += 0.15 * base_col * sky_col * calcAO(p+0.001*n, n, 0.2);
 		if (reflective)
 		{
 			col += 0.2 * sky_col * pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 10.0);
+		}
+
+		if (hit_mat_id > STEERING_WHEEL_MATERIAL_ID)
+		{
+			float terrain_height = eval_terrain_height(p.xz, distToTrack);
+			float bounce_strength = 1.0 / (1.0 + pow(p.y - terrain_height, 2.0));
+			bounce_strength *= max(0.0, 0.5-0.5*n.y);
+			bounce_strength *= ao(p, n, 1.5, 1.0);
+			col += 0.2 * sun_col * vec3(0.3, 0.5, 0.1) * bounce_strength;
 		}
 
 		float toward_sun = pow(max(0, dot(rd, l)), 3.0);
