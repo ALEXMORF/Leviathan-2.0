@@ -3,12 +3,24 @@
 /*
 next steps:
 
-- scene 1
--	house windows
--	house orientation/dimension/color randomization
+- scene 3 (oceanside)
+-	ocean
+-	sunset lighting
+- scene 4 (fog)
+-	variable density fog?
+- scene 5 (E-werk)
+-	E-Werk building
+
+- polish:
+- all scenes:
+-   car body
+		steering wheel movement
+		better car material
+		dashboard
 -	tall trees
 -	short foliage/flower
--   sky
+- scene 1
+-	house windows
 - compare to actual switzerland drive-through reference footage for biggest diffs
      relist priority
 - trees
@@ -197,6 +209,17 @@ float sdRoad(vec2 p, inout vec2 pInBezierCoord)
 	return sdBezier(p, roadPointA, roadPointB, roadPointC, pInBezierCoord);
 }
 
+float fbm(vec2 p)
+{
+	float y = noise(p);
+	y += 0.5*noise(2.0*p);
+	y += 0.25*noise(4.0*p);
+	y += 0.125*noise(8.0*p);
+	y += 0.0625*noise(16.0*p);
+	y += 0.03125*noise(32.0*p);
+	return y;
+}
+
 float eval_terrain_height(vec2 p, float distToRoad)
 {
 	float roadHeight = 0;
@@ -215,14 +238,7 @@ float eval_terrain_height(vec2 p, float distToRoad)
 		roadHeight = 800.0;
 	}
 
-	p *= freq;
-	float terrain_height = noise(p);
-	terrain_height += 0.5*noise(2.0*p);
-	terrain_height += 0.25*noise(4.0*p);
-	terrain_height += 0.125*noise(8.0*p);
-	terrain_height += 0.0625*noise(16.0*p);
-	terrain_height += 0.03125*noise(32.0*p);
-	terrain_height *= amp;
+	float terrain_height = amp*fbm(freq*p);
 
 	float roadToTerrainW = mix(0.001, 1.0, smoothstep(7.0, 200.0, distToRoad));
 	terrain_height = mix(roadHeight, terrain_height, roadToTerrainW);
@@ -666,6 +682,13 @@ void main()
 		col = mix(col, mix(sky_col, sun_col, toward_sun), 1.0-exp(-0.00005*t));
 		// glare
 		col += 0.1 * sun_col * toward_sun;
+	}
+	else
+	{
+		// cloud
+		float cloudHeight = 5000.0 - 2000.0*dot(rd.xz, rd.xz);
+ 		vec3 skyP = ro + rd*(cloudHeight/rd.y);
+		col = mix(col, vec3(1), max(0, fbm(0.0002*skyP.xz)-1.2));
 	}
 
 	if (gTime < initialDelayTime)
