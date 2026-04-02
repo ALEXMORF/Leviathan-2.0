@@ -37,7 +37,7 @@ uniform int m;
 out vec4 o;
 float T_MAX = 10000.0;
 float PI = 3.1415926;
-float t = m/float(44100);
+float gTime = m/float(44100);
 
 int sceneId = 0;
 vec2 roadPointA;
@@ -91,6 +91,11 @@ float modp(inout vec2 p, float rep) {
 	a = mod(a,angle) - angle/2.;
 	p = vec2(cos(a), sin(a))*length(p);
 	if (abs(c) >= (rep/2)) c = abs(c);
+	return c;
+}
+float mod1(inout float p, float size) {
+	float c = round(p/size);
+	p = p - c*size;
 	return c;
 }
 vec2 mod2(inout vec2 p, vec2 size) {
@@ -341,16 +346,16 @@ void sdForest(inout Map_Result result, vec3 p, float distToRoad, float terrain_h
 	}
 }
 
-void sdHouse(inout Map_Result result, vec3 p)
+void sdHouse(inout Map_Result result, vec3 p, vec3 dim)
 {
-	float body = box(p, vec3(5.0, 5.5, 10.0)) - 0.01;
-	body = max(body, -box(p-vec3(0,0,-10), vec3(0.5,0.8,0.1)));
+	float body = box(p, dim) - 0.01;
+	//body = max(body, -box(p-vec3(0,0,-10), vec3(0.5,0.8,0.1)));
 	update(result, body, HOUSE_BODY_MATERIAL_ID);
 
-	vec3 rp = p-vec3(0,5*1.45,0);
+	vec3 rp = p-vec3(0,dim.y+6.0,0);
 	rp.x = abs(rp.x);
 	rp *= rz(PI/6);
-	float roof = box(rp, vec3(7.5, 0.5, 11.5)) - 0.01;
+	float roof = box(rp, vec3(dim.x+2.5, 0.5, dim.z+0.5)) - 0.01;
 	update(result, roof, HOUSE_ROOF_MATERIAL_ID);
 }
 
@@ -360,28 +365,28 @@ void sdWorld(inout Map_Result result, vec3 p)
 	float distToRoad = sdRoad(p.xz, pInRoadSpace);
 	float terrain_height = eval_terrain_height(p.xz, distToRoad);
 
+	if (sceneId != 0)
+	{
+
 	// guard rails
 	update(result, max(abs(7.2-distToRoad)-0.13+0.03*pow(cos(10.0*p.y), 2.0),
 	                   abs(p.y-0.6-terrain_height)-0.2), GUARDRAIL_MATERIAL_ID);
 	vec3 gp = vec3(7.2-distToRoad, p.y, mod(pInRoadSpace.y+1.5, 3.0)-1.5);
 	update(result, box(gp, vec3(0.1, 0.6, 0.2)), GUARDRAIL_MATERIAL_ID);
+	}
 
 	if (sceneId == 0)
 	{
-		if (distToRoad >= 30.0)
 		{
 			vec3 hp = p;
-			vec2 houseId = mod2(hp.xz, vec2(50.0));
-			vec2 rand = hash22(houseId);
-			if (rand.x < 0.2)
-			{
-				hp.y -= terrain_height + 3.5;
-				if (rand.y < 0.5)
-				{
-					hp *= ry(PI);
-				}
-				sdHouse(result, hp);
-			}
+			hp.x = abs(hp.x);
+			hp.x -= 35.0;
+			float houseId = mod1(hp.z, 40.0);
+			float rand = hash11(houseId);
+			float rand2 = hash11(houseId+37.2);
+			hp.y -= terrain_height + 3.5;
+			hp *= ry(0.5*PI);
+			sdHouse(result, hp, vec3(10.0, 4.5 + 10.*rand, 10.0+10.0*rand2));
 		}
 		sdForest(result, p, distToRoad+25.0, terrain_height, vec2(30.0));
 	}
@@ -525,16 +530,18 @@ void main()
 	vec2 v = -1.0+2.0*q;
 	v.x *= res.x/res.y;
 	g_origin = vec3(0, 1.6, -2);
-	float time = t - 1.0*hash12(gl_FragCoord.xy + t) / 200.0; // motion blur
+	float time = gTime - 1.0*hash12(gl_FragCoord.xy + gTime) / 200.0; // motion blur
 
-	if (t < 10.0)
+	float initialDelayTime = 1.5;
+
+	if (gTime < 12.5)
 	{
 		sceneId = 0;
 		roadPointA = vec2(0,0);
 		roadPointB = vec2(0, 500);
 		roadPointC = vec2(1, 1000);
 	}
-	else if (t < 20.0)
+	else
 	{
 		sceneId = 1;
 		roadPointA = vec2(0,0);
@@ -553,7 +560,7 @@ void main()
 	g_origin -= 2.0 * track_side_dir;
 
 	vec3 ro = g_origin;
-	ro.y += 0.01*noise(vec2(50*t, 0)); // car shake
+	ro.y += 0.01*noise(vec2(50*gTime, 0)); // car shake
 	g_view_rotation = view_mat3(vec3(track_val.z, 0, track_val.w), eval_terrain_normal(g_origin.xz));
 	vec3 rd = normalize(vec3(v.x, v.y, 1.7)) * g_view_rotation;
 	float t = 0.0;
@@ -569,9 +576,13 @@ void main()
 		t += dist;
 	}
 
-	vec3 sky_col = 1.4*vec3(0.5, 0.6, 0.7);
 	vec3 sun_col = vec3(1.1, 1.05, 1.0);
-	sky_col = mix(sky_col, 0.5*sky_col, rd.y);
+
+	vec3 sky_hi_col = 1.2*vec3(0.5, 0.6, 0.7);
+	vec3 sky_lo_col = vec3(0.0, 0.1, 0.3);
+	vec3 sky_avg_col = mix(sky_lo_col, sky_hi_col, 0.5);
+	vec3 sky_col = mix(sky_lo_col, sky_hi_col, exp(-5.0*max(0,rd.y)));
+
 	vec3 col = sky_col;
 	vec3 l = normalize(vec3(-0.3, 2.0, 1.0));
 	//vec3 l = normalize(vec3(-0.3, 1.0, -1.0));
@@ -595,7 +606,7 @@ void main()
 		if (hit_mat_id == TREE_LEAF_MATERIAL_ID)
 			base_col = 0.7*vec3(0.3, 0.4, 0.05);
 		if (hit_mat_id == HOUSE_BODY_MATERIAL_ID)
-			base_col = vec3(0.5);
+			base_col = 4.0*vec3(0.8, 0.7, 0.35);
 		if (hit_mat_id == HOUSE_ROOF_MATERIAL_ID)
 			base_col = vec3(0.5, 0.18, 0.1);
 		if (hit_mat_id == TERRAIN_MATERIAL_ID)
@@ -633,7 +644,7 @@ void main()
 		float n_dot_l = max(0, dot(n, l));
 
 		col = base_col * n_dot_l * sun_col * calc_shadow(p+0.001*n, l, 0.023, T_MAX, 0.03);
-		col += 0.15 * base_col * sky_col * ao(p, n, 1.5, 1.0);
+		col += 0.15 * base_col * sky_avg_col * ao(p, n, 1.5, 1.0);
 		//col += 0.15 * base_col * sky_col * calcAO(p+0.001*n, n, 0.2);
 		if (reflective)
 		{
@@ -655,6 +666,11 @@ void main()
 		col = mix(col, mix(sky_col, sun_col, toward_sun), 1.0-exp(-0.00005*t));
 		// glare
 		col += 0.1 * sun_col * toward_sun;
+	}
+
+	if (gTime < initialDelayTime)
+	{
+		col = vec3(0);
 	}
 
 	//col = mix(col, smoothstep(vec3(0.0), vec3(1.0), col), 0.6);
