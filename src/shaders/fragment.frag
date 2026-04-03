@@ -6,6 +6,8 @@ next steps:
 - scene 5 (E-werk)
 -	E-Werk building
 
+- cold golf: https://mini.gmshaders.com/p/code-golfing
+
 - polish:
 - all scenes:
 -   car body
@@ -385,6 +387,35 @@ void sdHouse(inout Map_Result result, vec3 p, vec3 dim)
 	update(result, roof, HOUSE_ROOF_MATERIAL_ID);
 }
 
+void sdEwerk(inout Map_Result result, vec3 p)
+{
+	float scale = 30.0;
+	p /= scale;
+
+	vec3 bp = p;
+	bp.y += 0.1*abs(bp.x);
+	float body = box(bp, vec3(1.3, 1., 1.));
+	update(result, body*scale, HOUSE_ROOF_MATERIAL_ID);
+
+	float roof = box(bp-vec3(0,1,0), vec3(1.4, 0.02, 1.05));
+	update(result, roof*scale, HOUSE_BODY_MATERIAL_ID);
+
+	float sign0 = box(p-vec3(0.0,0.2,-1.1), vec3(0.33, 0.22, 0.3));
+	sign0 = max(sign0, p.x+p.y-0.56);
+	sign0 = abs(sign0) - 0.008;
+	sign0 = max(sign0, -(p.z + 1.1));
+	update(result, sign0*scale, HOUSE_BODY_MATERIAL_ID);
+
+	p -= vec3(-0.1, 0.2, -0.1);
+	p.y = abs(p.y);
+	float sign1 = box(p-vec3(-0.0,0.17,-1.1), vec3(0.2, 0.03, 0.14)); // top stroke
+	sign1 = min(sign1, box(p-vec3(-0.06,0,-1.1), vec3(0.12, 0.03, 0.14))); // middle stroke
+	sign1 = min(sign1, box(p-vec3(-0.17,0,-1.1), vec3(0.03, 0.2, 0.14))); // vertical stroke
+	sign1 = abs(sign1) - 0.008;
+	sign1 = max(sign1, -(p.z + 1.0));
+	update(result, sign1*scale, DEFAULT_MATERIAL_ID);
+}
+
 void sdWorld(inout Map_Result result, vec3 p)
 {
 	vec2 pInRoadSpace;
@@ -402,26 +433,28 @@ void sdWorld(inout Map_Result result, vec3 p)
 
 	if (sceneId == 0)
 	{
-		{
-			vec3 hp = p;
-			hp.x = abs(hp.x);
-			hp.x -= 35.0;
-			float houseId = mod1(hp.z, 40.0);
-			float rand = hash11(houseId);
-			float rand2 = hash11(houseId+37.2);
-			hp.y -= terrain_height + 3.5;
-			hp *= ry(0.5*PI);
-			sdHouse(result, hp, vec3(10.0, 4.5 + 10.*rand, 10.0+10.0*rand2));
-		}
+		vec3 hp = p;
+		hp.x = abs(hp.x);
+		hp.x -= 35.0;
+		float houseId = mod1(hp.z, 40.0);
+		float rand = hash11(houseId);
+		float rand2 = hash11(houseId+37.2);
+		hp.y -= terrain_height + 3.5;
+		hp *= ry(0.5*PI);
+		sdHouse(result, hp, vec3(10.0, 4.5 + 10.*rand, 10.0+10.0*rand2));
 		sdForest(result, p, distToRoad+25.0, terrain_height, vec2(30.0));
 	}
-	else if (sceneId == 1)
+	if (sceneId == 1)
 	{
 		sdForest(result, p, distToRoad, terrain_height, vec2(5.0));
 	}
-	else if (sceneId == 3)
+	if (sceneId == 3)
 	{
 		sdForest(result, p, distToRoad+20.0, terrain_height, vec2(10.0));
+	}
+	if (sceneId == 4)
+	{
+		sdEwerk(result, p-vec3(260, 120, 1400));
 	}
 
 	// terrain
@@ -443,7 +476,7 @@ Map_Result map(vec3 p)
 	sdWorld(result, p);
 #else
 	//sdTree(result, cp-vec3(0,-0.1,1));
-	sdHouse(result, cp-vec3(0,0,28));
+	sdEwerk(result, cp-vec3(0,0,4));
 #endif
 	return result;
 }

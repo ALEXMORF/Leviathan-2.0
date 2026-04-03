@@ -1,10 +1,8 @@
-/* File generated with Shader Minifier 1.2
- * http://www.ctrl-alt-test.fr
- */
+// Generated with Shader Minifier 1.6.0 (https://github.com/laurentlb/Shader_Minifier/)
 #ifndef POST_INL_
 # define POST_INL_
-# define VAR_I "v"
-# define VAR_O "f"
+# define VAR_i "v"
+# define VAR_o "f"
 
 const char *post_frag =
  "#version 130\n"
@@ -19,10 +17,9 @@ const char *post_frag =
    "v=vec4(0);"
    "for(int s=0;s<25;s++)"
      "{"
-       "vec2 i=gl_FragCoord.xy/vec2(1280,720);"
-       "float d=t(float(s+dot(i,i))),o=t(float(1-s+dot(i,i)));"
-       "vec2 m=.01*(-1.+2.*vec2(d,o));"
-       "v+=vec4(textureLod(f,i,(.3+.7*d)*texture(f,(1.+m)*i).w*8).xyz,1);"
+       "vec2 d=gl_FragCoord.xy/vec2(1280,720);"
+       "float i=t(float(s+dot(d,d))),C=t(float(1-s+dot(d,d)));"
+       "v+=vec4(textureLod(f,d,(.3+.7*i)*texture(f,(1.+.01*(-1.+2.*vec2(i,C)))*d).w*8).xyz,1);"
      "}"
    "v/=vec4(25);"
  "}";
