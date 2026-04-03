@@ -14,7 +14,9 @@ next steps:
 		steering wheel movement
 		better car material
 		dashboard
--	tall trees
+-	organic trees
+- scene 2
+	less glitchy trees
 -	short foliage/flower
 - scene 1
 -	house windows
@@ -419,6 +421,10 @@ void sdWorld(inout Map_Result result, vec3 p)
 	{
 		sdForest(result, p, distToRoad, terrain_height, vec2(5.0));
 	}
+	else if (sceneId == 3)
+	{
+		sdForest(result, p, distToRoad+20.0, terrain_height, vec2(10.0));
+	}
 
 	// terrain
 	update(result, (p.y-terrain_height), TERRAIN_MATERIAL_ID);
@@ -571,6 +577,11 @@ vec3 sample_sky_col(vec3 rd, vec3 sun_col, vec3 lightDir)
     	}
 	}
 
+	if (sceneId == 3)
+	{
+		sky_col = vec3(0.03);
+	}
+
 	return sky_col;
 }
 
@@ -601,13 +612,21 @@ void main()
 		roadPointC = 1.0*vec2(1500, 2000);
 		trackTime = time - 12.5;
 	}
-	else
+	else if (gTime < 34.3)
 	{
 		sceneId = 2;
 		roadPointA = vec2(0, 4000);
 		roadPointB = vec2(0, 8000);
 		roadPointC = vec2(-100, 12000);
 		trackTime = time - 23.5;
+	}
+	else
+	{
+		sceneId = 3;
+		roadPointA = vec2(0, 500);
+		roadPointB = vec2(500, 1000);
+		roadPointC = vec2(-500, 1500);
+		trackTime = time - 34.3;
 	}
 
 	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, trackTime/30.0);
@@ -643,6 +662,11 @@ void main()
 	if (sceneId == 2)
 	{
 		lightDir = normalize(vec3(0.2, 0.1, 1.0));
+	}
+	if (sceneId == 3)
+	{
+		sun_col = vec3(0.01);
+		ambient_col = vec3(0.01);
 	}
 	vec3 sky_col = sample_sky_col(rd, sun_col, lightDir);
 
@@ -724,17 +748,38 @@ void main()
 		if (sceneId == 2 && p.x > 5.0)
 		{
 			vec3 oceanN = vec3(0, 1, 0);
-			oceanN += 0.01*(fbm(0.01*p.xz)-0.5);
+			oceanN += 0.01*(fbm(0.01*p.xz+trackTime)-0.5);
 			vec3 reflectRd = reflect(rd, oceanN);
 			vec3 fresnel = calc_fresnel(vec3(0.2), dot(n, -rd), 5.0);
 			col = fresnel * sample_sky_col(reflectRd, sun_col, lightDir);
+		}
+
+		if (sceneId == 3)
+		{
+			vec3 headlight_col = vec3(0.8, 0.8, 0.6);
+			for (int i = 0; i < 2; ++i)
+			{
+				vec3 headlight_pos = g_origin + vec3(-2+4.0*i,0,4.5)*g_view_rotation;
+				vec3 headlight_forward = transpose(g_view_rotation)[2];
+				vec3 headlight_to_p = (p - headlight_pos);
+				float light_dist = length(headlight_to_p);
+				vec3 light_dir_to_p = headlight_to_p / light_dist;
+				vec3 headlight = headlight_col * max(0.0, dot(n, -light_dir_to_p));
+				headlight *= smoothstep(0.98, 0.99, dot(light_dir_to_p, headlight_forward));
+				col += headlight * base_col;
+			}
 		}
 
 		float toward_sun = pow(max(0, dot(rd, lightDir)), 8.0);
 
 		// fog
 		//col = mix(col, mix(sky_col, sun_col, toward_sun), 1.0-exp(-0.00005*t));
-		col = mix(col, sky_col, 1.0-exp(-0.00005*t));
+		float fogExp = 0.00005;
+		if (sceneId == 3)
+		{
+			fogExp = 0.05;
+		}
+		col = mix(col, sky_col, 1.0-exp(-fogExp*t));
 
 		if (sceneId != 2)
 		{
@@ -744,7 +789,7 @@ void main()
 	}
 	else
 	{
-		if (sceneId != 2)
+		if (sceneId != 2 && sceneId != 3)
 		{
 			// cloud
 			float cloudHeight = 5000.0 - 2000.0*dot(rd.xz, rd.xz);
@@ -758,6 +803,9 @@ void main()
 		col = vec3(0);
 	}
 
+	col = sqrt(col);
 	//col = mix(col, smoothstep(vec3(0.0), vec3(1.0), col), 0.6);
-	o = vec4(sqrt(col), 0.0);
+	col += 1.0/255.0 * hash12(gl_FragCoord.xy);
+
+	o = vec4(col, 0.0);
 }
