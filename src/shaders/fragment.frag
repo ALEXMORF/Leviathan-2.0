@@ -3,8 +3,6 @@
 /*
 next steps:
 
-- scene 4 (fog)
--	variable density fog?
 - scene 5 (E-werk)
 -	E-Werk building
 
@@ -236,10 +234,10 @@ float eval_terrain_height(vec2 p, float distToRoad)
 		freq = 0.0003;
 		roadHeight = 800.0;
 	}
-	if (sceneId == 2)
+	if (sceneId == 2 || sceneId == 4)
 	{
 		amp = 100.0;
-		freq = 0.003;
+		freq = 0.0025;
 		roadHeight = 100.0;
 	}
 
@@ -576,10 +574,23 @@ vec3 sample_sky_col(vec3 rd, vec3 sun_col, vec3 lightDir)
         	sky_col = mix(sky_col, 2.0*sun_col, sunT);
     	}
 	}
-
-	if (sceneId == 3)
+	if (sceneId >= 3)
 	{
 		sky_col = vec3(0.03);
+	}
+	if (sceneId == 4)
+	{
+		float theta = atan(rd.y, length(rd.xz));
+		float phi = acos(rd.z)-0.5;
+		vec2 sky_p = vec2(phi, theta);
+		sky_p *= 16.0;
+		vec2 star_id = mod2(sky_p, vec2(0.1));
+		vec2 rand = hash22(star_id);
+		if (rand.x < 0.005)
+		{
+			float star_radius = 0.01 + 0.02*rand.y;
+			sky_col += smoothstep(0.01, 0.0, length(sky_p) - star_radius);
+		}
 	}
 
 	return sky_col;
@@ -620,13 +631,21 @@ void main()
 		roadPointC = vec2(-100, 12000);
 		trackTime = time - 23.5;
 	}
-	else
+	else if (gTime < 45.5)
 	{
 		sceneId = 3;
 		roadPointA = vec2(0, 500);
 		roadPointB = vec2(500, 1000);
 		roadPointC = vec2(-500, 1500);
 		trackTime = time - 34.3;
+	}
+	else
+	{
+		sceneId = 4;
+		roadPointA = vec2(0, 500);
+		roadPointB = vec2(-500, 1000);
+		roadPointC = vec2(500, 1500);
+		trackTime = time - 45.5;
 	}
 
 	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, trackTime/30.0);
@@ -663,7 +682,7 @@ void main()
 	{
 		lightDir = normalize(vec3(0.2, 0.1, 1.0));
 	}
-	if (sceneId == 3)
+	if (sceneId >= 3)
 	{
 		sun_col = vec3(0.01);
 		ambient_col = vec3(0.01);
@@ -730,7 +749,7 @@ void main()
 
 		col = base_col * n_dot_l * sun_col * calc_shadow(p+0.001*n, lightDir, 0.023, T_MAX, 0.03);
 		col += 0.15 * base_col * ambient_col * ao(p, n, 1.5, 1.0);
-		//col += 0.15 * base_col * sky_col * calcAO(p+0.001*n, n, 0.2);
+		//col += 0.15 * base_col * ambient_col * calcAO(p+0.001*n, n, 0.2);
 		if (reflective)
 		{
 			col += 0.2 * sky_col * pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 10.0);
@@ -754,7 +773,7 @@ void main()
 			col = fresnel * sample_sky_col(reflectRd, sun_col, lightDir);
 		}
 
-		if (sceneId == 3)
+		if (sceneId >= 3)
 		{
 			vec3 headlight_col = vec3(0.8, 0.8, 0.6);
 			for (int i = 0; i < 2; ++i)
@@ -766,7 +785,7 @@ void main()
 				vec3 light_dir_to_p = headlight_to_p / light_dist;
 				vec3 headlight = headlight_col * max(0.0, dot(n, -light_dir_to_p));
 				headlight *= smoothstep(0.98, 0.99, dot(light_dir_to_p, headlight_forward));
-				col += headlight * base_col;
+				col += headlight * base_col / (1.0 + 0.05*light_dist);
 			}
 		}
 
@@ -789,7 +808,7 @@ void main()
 	}
 	else
 	{
-		if (sceneId != 2 && sceneId != 3)
+		if (sceneId < 2)
 		{
 			// cloud
 			float cloudHeight = 5000.0 - 2000.0*dot(rd.xz, rd.xz);
