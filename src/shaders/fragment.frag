@@ -3,9 +3,6 @@
 /*
 next steps:
 
-- scene 5 (E-werk)
--	E-Werk building
-
 - cold golf: https://mini.gmshaders.com/p/code-golfing
 
 - polish:
@@ -389,7 +386,7 @@ void sdHouse(inout Map_Result result, vec3 p, vec3 dim)
 
 void sdEwerk(inout Map_Result result, vec3 p)
 {
-	float scale = 30.0;
+	float scale = 40.0;
 	p /= scale;
 
 	vec3 bp = p;
@@ -454,7 +451,7 @@ void sdWorld(inout Map_Result result, vec3 p)
 	}
 	if (sceneId == 4)
 	{
-		sdEwerk(result, p-vec3(260, 120, 1400));
+		sdEwerk(result, (p-vec3(160, 120, 1300))*ry(-0.8));
 	}
 
 	// terrain
@@ -678,7 +675,7 @@ void main()
 		roadPointA = vec2(0, 500);
 		roadPointB = vec2(-500, 1000);
 		roadPointC = vec2(500, 1500);
-		trackTime = time - 45.5;
+		trackTime = min(time, 66.7) - 45.5;
 	}
 
 	vec4 track_val = bezier2(roadPointA, roadPointB, roadPointC, trackTime/30.0);
@@ -830,6 +827,10 @@ void main()
 		if (sceneId == 3)
 		{
 			fogExp = 0.05;
+		}
+		if (sceneId == 4)
+		{
+			fogExp = 0.000001;
 		}
 		col = mix(col, sky_col, 1.0-exp(-fogExp*t));
 
