@@ -5,6 +5,21 @@ next steps:
 
 - cold golf: https://mini.gmshaders.com/p/code-golfing
 
+- fix:
+	house window/door
+	sunset scene road starts slanted
+	tree looks cut (new tree design needed maybe?)
+	tree color randomization (clustered)
+	different tree types
+
+- next steps:
+	E-werk sign lights up
+	creepy shit in the fog scene
+		alien
+		fallen tree
+		tires
+	one more scene before final E-werk to match music
+
 - polish:
 - all scenes:
 -   car body
@@ -39,7 +54,9 @@ next steps:
 #define TREE_TRUNK_MATERIAL_ID 5
 #define TREE_LEAF_MATERIAL_ID 6
 #define HOUSE_BODY_MATERIAL_ID 7
-#define HOUSE_ROOF_MATERIAL_ID 8
+#define HOUSE_ROOF1_MATERIAL_ID 8
+#define HOUSE_ROOF2_MATERIAL_ID 9
+#define HOUSE_ROOF3_MATERIAL_ID 10
 
 uniform int m;
 out vec4 o;
@@ -371,17 +388,26 @@ void sdForest(inout Map_Result result, vec3 p, float distToRoad, float terrain_h
 	}
 }
 
-void sdHouse(inout Map_Result result, vec3 p, vec3 dim)
+void sdHouse(inout Map_Result result, vec3 p, vec2 houseId)
 {
+	vec2 rand = hash22(houseId);
+	p *= ry(step(0.5, hash11(houseId.x))*PI*0.5);
+
+	vec3 dim = 0.7*vec3(12.0, 10.5 + 5.*rand.x, 7.0+3.0*rand.y);
+
+	p.y += 0.4*abs(p.x);
 	float body = box(p, dim) - 0.01;
-	//body = max(body, -box(p-vec3(0,0,-10), vec3(0.5,0.8,0.1)));
 	update(result, body, HOUSE_BODY_MATERIAL_ID);
 
-	vec3 rp = p-vec3(0,dim.y+6.0,0);
-	rp.x = abs(rp.x);
-	rp *= rz(PI/6);
-	float roof = box(rp, vec3(dim.x+2.5, 0.5, dim.z+0.5)) - 0.01;
-	update(result, roof, HOUSE_ROOF_MATERIAL_ID);
+	vec3 rp = p-vec3(0,dim.y+0.0,0);
+	float roof = box(rp, vec3(dim.x+1.5, 0.3, dim.z+0.5)) - 0.01;
+
+	float color_hash = hash11(houseId.x+houseId.y+91.3);
+	int mat_id;
+	if (color_hash <= 0.33) mat_id = HOUSE_ROOF1_MATERIAL_ID;
+	else if (color_hash <= 0.66) mat_id = HOUSE_ROOF2_MATERIAL_ID;
+	else mat_id = HOUSE_ROOF3_MATERIAL_ID;
+	update(result, roof, mat_id);
 }
 
 void sdEwerk(inout Map_Result result, vec3 p)
@@ -392,7 +418,7 @@ void sdEwerk(inout Map_Result result, vec3 p)
 	vec3 bp = p;
 	bp.y += 0.1*abs(bp.x);
 	float body = box(bp, vec3(1.3, 1., 1.));
-	update(result, body*scale, HOUSE_ROOF_MATERIAL_ID);
+	update(result, body*scale, HOUSE_ROOF1_MATERIAL_ID);
 
 	float roof = box(bp-vec3(0,1,0), vec3(1.4, 0.02, 1.05));
 	update(result, roof*scale, HOUSE_BODY_MATERIAL_ID);
@@ -432,13 +458,10 @@ void sdWorld(inout Map_Result result, vec3 p)
 	{
 		vec3 hp = p;
 		hp.x = abs(hp.x);
-		hp.x -= 35.0;
-		float houseId = mod1(hp.z, 40.0);
-		float rand = hash11(houseId);
-		float rand2 = hash11(houseId+37.2);
+		hp.x -= 33.0;
+		vec2 houseId = vec2(mod1(hp.z, 40.0), sign(p.x));
 		hp.y -= terrain_height + 3.5;
-		hp *= ry(0.5*PI);
-		sdHouse(result, hp, vec3(10.0, 4.5 + 10.*rand, 10.0+10.0*rand2));
+		sdHouse(result, hp, houseId);
 		sdForest(result, p, distToRoad+25.0, terrain_height, vec2(30.0));
 	}
 	if (sceneId == 1)
@@ -593,7 +616,7 @@ vec3 sample_sky_col(vec3 rd, vec3 sun_col, vec3 lightDir)
 	{
 		sun_col = 1.5*vec3(0.9, 0.5, 0.2);
 		sky_lo_col = 0.5*vec3(0.8, 0.05, 0.05);
-		sky_hi_col = 1.0*vec3(0.25, 0.2, 0.5);
+		sky_hi_col = 1.0*vec3(0.85, 0.2, 0.9);
     	float sunFactor = heightFactor-0.23*(1.0/(0.8+2.0*pow(rd.x-lightDir.x, 2.0))); // sun-factor
 		sky_col = mix(sun_col, sky_hi_col, 1.0-exp(-3*sunFactor));
 		sky_col = mix(sky_lo_col, sky_col, 1.0-exp(-5*heightFactor));
@@ -741,8 +764,12 @@ void main()
 			base_col = 0.7*vec3(0.3, 0.4, 0.05);
 		if (hit_mat_id == HOUSE_BODY_MATERIAL_ID)
 			base_col = 4.0*vec3(0.8, 0.7, 0.35);
-		if (hit_mat_id == HOUSE_ROOF_MATERIAL_ID)
+		if (hit_mat_id == HOUSE_ROOF1_MATERIAL_ID)
 			base_col = vec3(0.5, 0.18, 0.1);
+		if (hit_mat_id == HOUSE_ROOF2_MATERIAL_ID)
+			base_col = 0.5*vec3(0.2, 0.18, 0.1);
+		if (hit_mat_id == HOUSE_ROOF3_MATERIAL_ID)
+			base_col = 0.3*vec3(0.5, 0.28, 0.15);
 		if (hit_mat_id == TERRAIN_MATERIAL_ID)
 		{
 			if (distToTrack <= 7.0)
@@ -858,7 +885,7 @@ void main()
 
 	col = sqrt(col);
 	//col = mix(col, smoothstep(vec3(0.0), vec3(1.0), col), 0.6);
-	col += 1.0/255.0 * hash12(gl_FragCoord.xy);
+	col += 0.003921 * hash12(gl_FragCoord.xy);
 
 	o = vec4(col, 0.0);
 }
