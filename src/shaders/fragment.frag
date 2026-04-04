@@ -5,18 +5,10 @@ next steps:
 
 - cold golf: https://mini.gmshaders.com/p/code-golfing
 
-- fix:
-	tree looks cut (new tree design needed maybe?)
-	tree color randomization (clustered)
-	different tree types
-
 - next steps:
-	E-werk sign lights up
-	creepy shit in the fog scene
-		alien
-		fallen tree
-		tires
+	tires
 	one more scene before final E-werk to match music
+	E-werk complete outline
 
 - polish:
 - all scenes:
@@ -57,6 +49,7 @@ next steps:
 #define HOUSE_ROOF3_MATERIAL_ID 10
 #define WINDOW_FRAME_MATERIAL_ID 11
 #define WINDOW_MATERIAL_ID 12
+#define ALIEN_EYE_MATERIAL_ID 13
 
 uniform int m;
 out vec4 o;
@@ -364,6 +357,36 @@ void sdTree(inout Map_Result result, vec3 p, float tree_scale) {
 	}
 }
 
+float sdCone( vec3 p, vec2 c, float h )
+{
+  // c is the sin/cos of the angle, h is height
+  // Alternatively pass q instead of (c,h),
+  // which is the point at the base in 2D
+  vec2 q = h*vec2(c.x/c.y,-1.0);
+    
+  vec2 w = vec2( length(p.xz), p.y );
+  vec2 a = w - q*clamp( dot(w,q)/dot(q,q), 0.0, 1.0 );
+  vec2 b = w - q*vec2( clamp( w.x/q.x, 0.0, 1.0 ), 1.0 );
+  float k = sign( q.y );
+  float d = min(dot( a, a ),dot(b, b));
+  float s = max( k*(w.x*q.y-w.y*q.x),k*(w.y-q.y)  );
+  return sqrt(d)*sign(s);
+}
+
+void sdTreeReal(inout Map_Result result, vec3 p) {
+	p += 0.4*noise(p.xz);
+	vec3 lp = p;
+	lp.y -= 7.5;
+	float leaf = sdCone(lp, vec2(1,2), 6.0)-0.01;
+	lp.y -= 1.5;
+	leaf = min(leaf, sdCone(lp, vec2(1,2.), 5.0)-0.01);
+	lp.y -= 1.0;
+	leaf = min(leaf, sdCone(lp, vec2(1,2.), 3.5)-0.01);
+	update(result, leaf, TREE_LEAF_MATERIAL_ID);
+	float trunk = caps(p, 0.6, 1.5);
+	update(result, trunk, TREE_TRUNK_MATERIAL_ID);
+}
+
 void sdForest(inout Map_Result result, vec3 p, float distToRoad, float terrain_height, vec2 tileDim)
 {
 	// trees
@@ -381,7 +404,14 @@ void sdForest(inout Map_Result result, vec3 p, float distToRoad, float terrain_h
 				{
 					tp.xz += tileDim * (hash22(id) - 0.5);
 					tp *= ry(2.0*PI*rand);
-					sdTree(result, (tp - vec3(0, terrain_height, 0)), 3.0 + 2.0*rand);
+					if (sceneId == 0)
+					{
+						sdTreeReal(result, (tp - vec3(0, terrain_height, 0)));
+					}
+					else
+					{
+						sdTree(result, (tp - vec3(0, terrain_height, 0)), 3.0 + 2.0*rand);
+					}
 				}
 			}
 		}
@@ -424,6 +454,9 @@ void sdHouse(inout Map_Result result, vec3 p, vec2 houseId)
 	update(result, roof, mat_id);
 }
 
+float distToSign0 = T_MAX;
+float distToSign1 = T_MAX;
+
 void sdEwerk(inout Map_Result result, vec3 p)
 {
 	float scale = 40.0;
@@ -441,6 +474,7 @@ void sdEwerk(inout Map_Result result, vec3 p)
 	sign0 = max(sign0, p.x+p.y-0.56);
 	sign0 = abs(sign0) - 0.008;
 	sign0 = max(sign0, -(p.z + 1.1));
+	distToSign0 = min(sign0*scale, distToSign0);
 	update(result, sign0*scale, HOUSE_BODY_MATERIAL_ID);
 
 	p -= vec3(-0.1, 0.2, -0.1);
@@ -450,7 +484,52 @@ void sdEwerk(inout Map_Result result, vec3 p)
 	sign1 = min(sign1, box(p-vec3(-0.17,0,-1.1), vec3(0.03, 0.2, 0.14))); // vertical stroke
 	sign1 = abs(sign1) - 0.008;
 	sign1 = max(sign1, -(p.z + 1.0));
+	distToSign1 = min(sign1*scale, distToSign1);
 	update(result, sign1*scale, DEFAULT_MATERIAL_ID);
+}
+
+float sdEllipsoid( vec3 p, vec3 r )
+{
+  float k0 = length(p/r);
+  float k1 = length(p/(r*r));
+  return k0*(k0-1.0)/k1;
+}
+
+float sdStick(vec3 p, vec3 a, vec3 b, float r_a, float r_b)
+{
+    vec3 ab = b - a;
+    vec3 ap = p - a;
+    float t = clamp(dot(ab, ap) / dot(ab, ab), 0.0, 1.0);
+    return length(ap - t * ab) - mix(r_a, r_b, smoothstep(0.0,1.0,t));
+}
+
+float alienEyeDist = T_MAX;
+
+void sdAlien(inout Map_Result result, vec3 p)
+{
+	p*=ry(-0.8);
+	p /= 1.5;
+
+	p.z += 0.1*p.y;
+	vec3 hp = p-vec3(0,1.5,0);
+	float dist = sdEllipsoid(hp, vec3(0.4, 0.5, 0.3));
+	hp += vec3(0, 0.2, 0.1);
+	update(result, smin(dist, caps(hp, 0.13, 0.2), 0.1), DEFAULT_MATERIAL_ID);
+	hp.x = abs(hp.x);
+	hp -= vec3(0.18, -0.07, -0.2);
+	float eyeDist = sdEllipsoid(hp, vec3(0.1, 0.2, 0.1));
+	update(result, eyeDist, ALIEN_EYE_MATERIAL_ID);
+	alienEyeDist = min(alienEyeDist, eyeDist);
+
+	dist = box(p-vec3(0,0.2,0), vec3(0.05, 0.3, 0.2)) - 0.3;
+	dist = smin(dist, caps(p-vec3(0,1,0), 0.1, 0.1), 0.05);
+	p.x = abs(p.x);
+
+	dist = smin(dist, sdStick(p, vec3(0.3, 0.7, 0), vec3(0.7, 0.2, 0), 0.15, 0.1), 0.05);
+	dist = smin(dist, sdStick(p, vec3(0.7, 0.2, 0), vec3(0.78, -0.4, 0), 0.1, 0.08), 0.01);
+
+	dist = smin(dist, sdStick(p, vec3(0.3, -0.4, 0), vec3(0.5, -1.5, 0), 0.1, 0.1), 0.1);
+	update(result, dist, DEFAULT_MATERIAL_ID);
 }
 
 void sdWorld(inout Map_Result result, vec3 p)
@@ -476,7 +555,9 @@ void sdWorld(inout Map_Result result, vec3 p)
 		vec2 houseId = vec2(mod1(hp.z, 40.0), sign(p.x));
 		hp.y -= terrain_height + 3.5;
 		sdHouse(result, hp, houseId);
-		sdForest(result, p, distToRoad+25.0, terrain_height, vec2(30.0));
+		p.x = abs(p.x);
+		p.x -= 2.0;
+		sdForest(result, p, distToRoad+25.0, terrain_height, vec2(26.0));
 	}
 	if (sceneId == 1)
 	{
@@ -485,10 +566,12 @@ void sdWorld(inout Map_Result result, vec3 p)
 	if (sceneId == 3)
 	{
 		sdForest(result, p, distToRoad+20.0, terrain_height, vec2(10.0));
+		sdAlien(result, (p-vec3(178, terrain_height+1.2, 820)));
+		sdTree(result, (p-vec3(99, terrain_height, 650))*rz(1.1), 4.3);
 	}
 	if (sceneId == 4)
 	{
-		sdEwerk(result, (p-vec3(160, 120, 1300))*ry(-0.8));
+		sdEwerk(result, (p-vec3(160, 122, 1300))*ry(-0.8));
 	}
 
 	// terrain
@@ -511,7 +594,9 @@ Map_Result map(vec3 p)
 #else
 	//sdTree(result, cp-vec3(0,-0.1,1));
 	//sdEwerk(result, cp-vec3(0,0,40));
-	sdHouse(result, cp-vec3(0,0,23), vec2(0));
+	//sdHouse(result, cp-vec3(0,0,23), vec2(0));
+	//sdTreeReal(result, cp-vec3(0,0,3));
+	sdAlien(result, cp-vec3(0,0,5));
 #endif
 	return result;
 }
@@ -776,7 +861,10 @@ void main()
 		if (hit_mat_id == TREE_TRUNK_MATERIAL_ID)
 			base_col = 0.7*vec3(0.13, 0.1, 0.05);
 		if (hit_mat_id == TREE_LEAF_MATERIAL_ID)
+		{
 			base_col = 0.7*vec3(0.3, 0.4, 0.05);
+			base_col.x += 0.1 * noise(0.1*p.xz);
+		}
 		if (hit_mat_id == HOUSE_BODY_MATERIAL_ID)
 			base_col = 4.0*vec3(0.8, 0.7, 0.35);
 		if (hit_mat_id == HOUSE_ROOF1_MATERIAL_ID)
@@ -865,6 +953,14 @@ void main()
 			}
 		}
 
+		vec3 signCol = vec3(0.5, 0, 0) / pow(0.001+distToSign0, 2.0) + vec3(0.5) / pow(0.001+distToSign1, 2.0);
+		col += signCol * smoothstep(67, 68, gTime);
+
+		if (hit_mat_id == ALIEN_EYE_MATERIAL_ID)
+		{
+			col = vec3(0,3,0);
+		}
+
 		float toward_sun = pow(max(0, dot(rd, lightDir)), 8.0);
 
 		// fog
@@ -897,13 +993,7 @@ void main()
 		}
 	}
 
-	if (gTime < initialDelayTime)
-	{
-		col = vec3(0);
-	}
-
-	col = sqrt(col);
-	//col = mix(col, smoothstep(vec3(0.0), vec3(1.0), col), 0.6);
+	col = sqrt(col * step(initialDelayTime, time));
 	col += 0.003921 * hash12(gl_FragCoord.xy);
 
 	o = vec4(col, 0.0);
