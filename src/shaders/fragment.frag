@@ -6,8 +6,6 @@ next steps:
 - cold golf: https://mini.gmshaders.com/p/code-golfing
 
 - fix:
-	house window/door
-	sunset scene road starts slanted
 	tree looks cut (new tree design needed maybe?)
 	tree color randomization (clustered)
 	different tree types
@@ -57,6 +55,8 @@ next steps:
 #define HOUSE_ROOF1_MATERIAL_ID 8
 #define HOUSE_ROOF2_MATERIAL_ID 9
 #define HOUSE_ROOF3_MATERIAL_ID 10
+#define WINDOW_FRAME_MATERIAL_ID 11
+#define WINDOW_MATERIAL_ID 12
 
 uniform int m;
 out vec4 o;
@@ -265,7 +265,7 @@ float eval_terrain_height(vec2 p, float distToRoad)
 	if (sceneId == 2)
 	{
 		float ocean_height = 0.0;
-		float terrainToOceanW = mix(0.001, 1.0, smoothstep(0., 100.0, p.x));
+		float terrainToOceanW = mix(0.001, 1.0, smoothstep(1., 100.0, p.x));
 		terrain_height = mix(terrain_height, ocean_height, terrainToOceanW);
 	}
 
@@ -395,6 +395,20 @@ void sdHouse(inout Map_Result result, vec3 p, vec2 houseId)
 
 	vec3 dim = 0.7*vec3(12.0, 10.5 + 5.*rand.x, 7.0+3.0*rand.y);
 
+	vec3 wp = p;
+	wp -= vec3(0, dim.y-6.0, -dim.z);
+	float repDist = 2.3;
+	if (wp.x > repDist) wp.x -= 2.0*repDist;
+	if (wp.x < -repDist) wp.x += 2.0*repDist;
+	float window_frame = box(wp, 1.5*vec3(0.8, 1.0, 0.3));
+	window_frame = abs(window_frame) - 0.15;
+	window_frame = max(window_frame, -(wp.z+0.03));
+	window_frame = min(window_frame, box(wp, vec3(0.1, 1.3, 0.02)));
+	window_frame = min(window_frame, box(wp, vec3(1.0, 0.1, 0.02)));
+	update(result, window_frame, WINDOW_FRAME_MATERIAL_ID);
+	float window = box(wp, vec3(0.95, 1.25, 0.02));
+	update(result, window, WINDOW_MATERIAL_ID);
+
 	p.y += 0.4*abs(p.x);
 	float body = box(p, dim) - 0.01;
 	update(result, body, HOUSE_BODY_MATERIAL_ID);
@@ -496,7 +510,8 @@ Map_Result map(vec3 p)
 	sdWorld(result, p);
 #else
 	//sdTree(result, cp-vec3(0,-0.1,1));
-	sdEwerk(result, cp-vec3(0,0,4));
+	//sdEwerk(result, cp-vec3(0,0,40));
+	sdHouse(result, cp-vec3(0,0,23), vec2(0));
 #endif
 	return result;
 }
@@ -679,10 +694,10 @@ void main()
 	else if (gTime < 34.3)
 	{
 		sceneId = 2;
-		roadPointA = vec2(0, 4000);
-		roadPointB = vec2(0, 8000);
-		roadPointC = vec2(-100, 12000);
-		trackTime = time - 23.5;
+		roadPointA = vec2(0, 0);
+		roadPointB = vec2(0, 2000);
+		roadPointC = vec2(-100, 4000);
+		trackTime = (time+8.0) - 23.5;
 	}
 	else if (gTime < 45.5)
 	{
@@ -770,6 +785,10 @@ void main()
 			base_col = 0.5*vec3(0.2, 0.18, 0.1);
 		if (hit_mat_id == HOUSE_ROOF3_MATERIAL_ID)
 			base_col = 0.3*vec3(0.5, 0.28, 0.15);
+		if (hit_mat_id == WINDOW_FRAME_MATERIAL_ID)
+			base_col = 3.5*vec3(1.0);
+		if (hit_mat_id == WINDOW_MATERIAL_ID)
+			base_col = vec3(0.5, 0.6, 0.7);
 		if (hit_mat_id == TERRAIN_MATERIAL_ID)
 		{
 			if (distToTrack <= 7.0)
